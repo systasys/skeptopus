@@ -1,0 +1,10 @@
+{
+  "description": "Your AI says it's done. SkeptOpus goes and looks.",
+  "command.openJournal": "Open the journal in a tab",
+  "command.checkClipboard": "Check what I just copied",
+  "command.refresh": "Refresh",
+  "command.hookTools": "Hook the AI tools on this machine",
+  "view.journal": "Journal",
+  "icon.eye": "SkeptOpus's eye",
+  "config.statusBar": "Show the worst answer of the day in the status bar."
+}

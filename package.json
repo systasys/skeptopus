@@ -1,0 +1,11 @@
+{
+  "name": "skeptopus-repository",
+  "private": true,
+  "description": "Your AI says it's done. SkeptOpus goes and looks.",
+  "license": "MIT",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "test": "node --test",
+    "pack:extension": "node scripts/skeptopus-pack-extension.mjs"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "SkeptOpus could not start its engine.": "SkeptOpus n'a pas pu démarrer son moteur.",
+  "SkeptOpus is looking…": "SkeptOpus regarde…",
+  "Open the journal": "Ouvrir le journal",
+  "SkeptOpus's triggers need Node.js 18 or later on this machine (nodejs.org). The journal and the clipboard check work without it.": "Les déclencheurs de SkeptOpus ont besoin de Node.js 18 ou plus récent sur cette machine (nodejs.org). Le journal et la vérification de ce que vous copiez marchent sans lui.",
+  "Hook them": "Les accrocher",
+  "Hook the AI tools found on this machine?": "Accrocher les outils d'IA trouvés sur cette machine ?",
+  "SkeptOpus adds one line to each tool's settings and keeps a copy of the settings as they were.": "SkeptOpus ajoute une ligne aux réglages de chaque outil et garde une copie des réglages d'avant."
+}

@@ -1,0 +1,54 @@
+{
+  "name": "skeptopus",
+  "displayName": "SkeptOpus",
+  "description": "%description%",
+  "version": "0.1.0",
+  "publisher": "skeptopus",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": { "vscode": "^1.90.0" },
+  "categories": ["Other"],
+  "keywords": ["ai", "agent", "verification", "claude", "cursor"],
+  "icon": "media/icon.png",
+  "main": "./extension.js",
+  "l10n": "./l10n",
+  "activationEvents": ["onStartupFinished"],
+  "extensionKind": ["ui", "workspace"],
+  "capabilities": {
+    "untrustedWorkspaces": { "supported": true },
+    "virtualWorkspaces": true
+  },
+  "contributes": {
+    "commands": [
+      { "command": "skeptopus.openJournal", "title": "%command.openJournal%", "category": "SkeptOpus", "icon": "$(link-external)" },
+      { "command": "skeptopus.checkClipboard", "title": "%command.checkClipboard%", "category": "SkeptOpus", "icon": "$(clippy)" },
+      { "command": "skeptopus.refresh", "title": "%command.refresh%", "category": "SkeptOpus", "icon": "$(refresh)" },
+      { "command": "skeptopus.hookTools", "title": "%command.hookTools%", "category": "SkeptOpus" }
+    ],
+    "viewsContainers": {
+      "activitybar": [{ "id": "skeptopus", "title": "SkeptOpus", "icon": "media/eye.svg" }]
+    },
+    "views": {
+      "skeptopus": [{ "type": "webview", "id": "skeptopus.journal", "name": "%view.journal%", "icon": "media/eye.svg", "contextualTitle": "SkeptOpus" }]
+    },
+    "menus": {
+      "view/title": [
+        { "command": "skeptopus.checkClipboard", "when": "view == skeptopus.journal", "group": "navigation@1" },
+        { "command": "skeptopus.openJournal", "when": "view == skeptopus.journal", "group": "navigation@2" },
+        { "command": "skeptopus.refresh", "when": "view == skeptopus.journal", "group": "navigation@3" }
+      ]
+    },
+    "icons": {
+      "skeptopus-eye": {
+        "description": "%icon.eye%",
+        "default": { "fontPath": "media/skeptopus-icons.woff", "fontCharacter": "\\E001" }
+      }
+    },
+    "configuration": {
+      "title": "SkeptOpus",
+      "properties": {
+        "skeptopus.statusBar": { "type": "boolean", "default": true, "description": "%config.statusBar%" }
+      }
+    }
+  }
+}

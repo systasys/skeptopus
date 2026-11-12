@@ -1,0 +1,10 @@
+{
+  "description": "AI 说搞定了，SkeptOpus 亲自去看一眼。",
+  "command.openJournal": "在标签页中打开日志",
+  "command.checkClipboard": "核实我刚复制的内容",
+  "command.refresh": "刷新",
+  "command.hookTools": "接入这台电脑上的 AI 工具",
+  "view.journal": "日志",
+  "icon.eye": "SkeptOpus 的眼睛",
+  "config.statusBar": "在状态栏显示今天最糟的一条结论。"
+}

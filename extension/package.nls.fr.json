@@ -1,0 +1,10 @@
+{
+  "description": "Votre IA dit que c'est fait. SkeptOpus va voir.",
+  "command.openJournal": "Ouvrir le journal dans un onglet",
+  "command.checkClipboard": "Vérifier ce que je viens de copier",
+  "command.refresh": "Actualiser",
+  "command.hookTools": "Accrocher les outils d'IA de cette machine",
+  "view.journal": "Journal",
+  "icon.eye": "L'œil de SkeptOpus",
+  "config.statusBar": "Afficher la pire réponse du jour dans la barre d'état."
+}

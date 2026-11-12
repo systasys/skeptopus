@@ -1,0 +1,351 @@
+// SkeptOpus / every word a human reads, in every language.
+//
+// English is the original. The other languages are written the way people speak them: a French, Spanish or
+// Chinese reader must never feel a translation. No word-for-word.
+//
+// NOT REVIEWED BY A NATIVE SPEAKER: es, zh and ar were written by a non-native author. They ship as they are,
+// and corrections from readers whose language it is are welcome. en is the original.
+//
+// Arabic is written in plain modern standard Arabic, with the words developers really use left as they are
+// (commit, push, PR). Its slogan is in everyday spoken Arabic. The page turns right-to-left for it.
+
+export const LANGS = ["en", "fr", "es", "zh", "ar"];
+// Arabic keeps the same digits as the counters of the page and the Gregorian calendar, whatever the reader's country.
+export const LOCALE = { en: "en-US", fr: "fr-FR", es: "es-ES", zh: "zh-CN", ar: "ar-u-ca-gregory-nu-latn" };
+export const LANG_LABEL = { en: "EN", fr: "FR", es: "ES", zh: "中文", ar: "عربي" };
+export const DIR = { en: "ltr", fr: "ltr", es: "ltr", zh: "ltr", ar: "rtl" };
+export const pickLang = (lang) => (LANGS.includes(lang) ? lang : "en");
+
+const many = (n, one, more) => (n > 1 ? more : one);
+
+export const WORDS = {
+  en: {
+    PROVEN: "SEEN", NOT_PROVEN: "NOT FOUND", CONTRADICTED: "CONTRADICTED", COULD_NOT_CHECK: "COULDN'T LOOK", NOTHING_CLAIMED: "NOTHING CLAIMED",
+    kind: { FILE_REFERENCED: "file mentioned", FILE_WRITTEN: "file written", COMMITTED: "committed", PUSHED: "pushed", PR_MERGED: "pull request merged", PR_OPENED: "pull request opened", TESTS_PASS: "tests pass", COMMENT_POSTED: "comment posted", REPO_CREATED: "repository created", MEASURED: "announced measurement", VAGUE_DONE: "“done”, with no detail" },
+    not: "did NOT: ", none: "No checkable claim in this message.", head: "SkeptOpus", sep: ": ", open: " (", close: ")",
+    checked: (n) => n + many(n, " claim checked", " claims checked"),
+    clipboardEmpty: "The clipboard is empty.",
+    noClipboard: "Nothing on this machine reads the clipboard. Install xclip or wl-clipboard, or give the text with --text-file.",
+    noOpener: (page) => "Nothing on this machine opens web pages. Open this file in your browser: " + page,
+  },
+  fr: {
+    PROVEN: "VU", NOT_PROVEN: "REFUSÉ", CONTRADICTED: "CONTREDIT", COULD_NOT_CHECK: "PAS PU VOIR", NOTHING_CLAIMED: "RIEN D'AFFIRMÉ",
+    kind: { FILE_REFERENCED: "fichier cité", FILE_WRITTEN: "fichier écrit", COMMITTED: "enregistré (commit)", PUSHED: "envoyé (push)", PR_MERGED: "demande fusionnée", PR_OPENED: "demande ouverte", TESTS_PASS: "tests réussis", COMMENT_POSTED: "commentaire publié", REPO_CREATED: "dépôt créé", MEASURED: "mesure annoncée", VAGUE_DONE: "« c'est fait », sans détail" },
+    not: "n'a PAS : ", none: "Aucune affirmation vérifiable dans ce message.", head: "SkeptOpus", sep: " : ", open: " (", close: ")",
+    checked: (n) => n + many(n, " affirmation vérifiée", " affirmations vérifiées"),
+    clipboardEmpty: "Le presse-papiers est vide.",
+    noClipboard: "Rien sur cette machine ne lit le presse-papiers. Installez xclip ou wl-clipboard, ou donnez le texte avec --text-file.",
+    noOpener: (page) => "Rien sur cette machine n'ouvre les pages web. Ouvrez ce fichier dans votre navigateur : " + page,
+  },
+  es: {
+    PROVEN: "VISTO", NOT_PROVEN: "NO CONSTA", CONTRADICTED: "DESMENTIDO", COULD_NOT_CHECK: "NO SE PUDO VER", NOTHING_CLAIMED: "NADA QUE COMPROBAR",
+    kind: { FILE_REFERENCED: "archivo citado", FILE_WRITTEN: "archivo escrito", COMMITTED: "commit hecho", PUSHED: "push hecho", PR_MERGED: "pull request fusionada", PR_OPENED: "pull request abierta", TESTS_PASS: "tests en verde", COMMENT_POSTED: "comentario publicado", REPO_CREATED: "repositorio creado", MEASURED: "medición anunciada", VAGUE_DONE: "«hecho», sin más detalle" },
+    not: "NO: ", none: "En este mensaje no hay nada que comprobar.", head: "SkeptOpus", sep: ": ", open: " (", close: ")",
+    checked: (n) => n + many(n, " afirmación comprobada", " afirmaciones comprobadas"),
+    clipboardEmpty: "El portapapeles está vacío.",
+    noClipboard: "En este equipo no hay nada que lea el portapapeles. Instala xclip o wl-clipboard, o pasa el texto con --text-file.",
+    noOpener: (page) => "En este equipo no hay nada que abra páginas web. Abre este archivo en tu navegador: " + page,
+  },
+  zh: {
+    PROVEN: "属实", NOT_PROVEN: "查无实据", CONTRADICTED: "不属实", COULD_NOT_CHECK: "无法核实", NOTHING_CLAIMED: "无可核实",
+    kind: { FILE_REFERENCED: "提到的文件", FILE_WRITTEN: "写入的文件", COMMITTED: "已提交 (commit)", PUSHED: "已推送 (push)", PR_MERGED: "PR 已合并", PR_OPENED: "PR 已创建", TESTS_PASS: "测试通过", COMMENT_POSTED: "评论已发布", REPO_CREATED: "仓库已创建", MEASURED: "声称的检测结果", VAGUE_DONE: "只说“搞定了”，没有细节" },
+    not: "没有：", none: "这条消息里没有可核实的说法。", head: "SkeptOpus", sep: "：", open: "（", close: "）",
+    checked: (n) => "核实了 " + n + " 条说法",
+    clipboardEmpty: "剪贴板是空的。",
+    noClipboard: "这台电脑上没有能读取剪贴板的程序。请安装 xclip 或 wl-clipboard，或者用 --text-file 传入文本。",
+    noOpener: (page) => "这台电脑上没有能打开网页的程序。请用浏览器打开这个文件：" + page,
+  },
+  ar: {
+    PROVEN: "مؤكَّد", NOT_PROVEN: "لا أثر له", CONTRADICTED: "خلاف الواقع", COULD_NOT_CHECK: "تعذّر التحقق", NOTHING_CLAIMED: "لا شيء للتحقق",
+    kind: { FILE_REFERENCED: "ملف مذكور", FILE_WRITTEN: "ملف مكتوب", COMMITTED: "تمّ الـ commit", PUSHED: "تمّ الـ push", PR_MERGED: "دُمج الـ PR", PR_OPENED: "فُتح الـ PR", TESTS_PASS: "الاختبارات ناجحة", COMMENT_POSTED: "تعليق منشور", REPO_CREATED: "مستودع مُنشأ", MEASURED: "قياس مُعلَن", VAGUE_DONE: "«تمّ»، بلا تفاصيل" },
+    not: "ينفي: ", none: "لا يوجد في هذه الرسالة ما يمكن التحقق منه.", head: "SkeptOpus", sep: ": ", open: " (", close: ")",
+    // Arabic counts: one, two, a few (3 to 10), many (11 and more) each take their own form.
+    checked: (n) => "تمّ التحقق من " + (n === 1 ? "ادّعاء واحد" : n === 2 ? "ادّعاءين" : n <= 10 ? n + " ادّعاءات" : n + " ادّعاءً"),
+    clipboardEmpty: "الحافظة فارغة.",
+    noClipboard: "لا يوجد على هذا الجهاز ما يقرأ الحافظة. ثبّت xclip أو wl-clipboard، أو مرّر النص عبر --text-file.",
+    noOpener: (page) => "لا يوجد على هذا الجهاز ما يفتح صفحات الويب. افتح هذا الملف في متصفحك: " + page,
+  },
+};
+
+// Why SkeptOpus answered what it answered. One short sentence per situation, as one would say it out loud.
+export const WHY = {
+  en: {
+    FILE_ABSENT: "the file doesn't exist", FILE_EMPTY: "the file is empty", NOT_A_FILE: "that's not a file", FILE_OLDER_THAN_SESSION: "the file is older than this session",
+    FILE_PRESENT_AND_FRESH: "the file is there, written during the session", FILE_PRESENT_AGE_UNKNOWN: "the file is there (age not compared)", FILE_UNREADABLE: "the file can't be read", FILE_PRESENT: "the file is there", FOLDER_PRESENT: "the folder is there",
+    NO_GIT_REPOSITORY_HERE: "no git repository here", COMMIT_EXISTS: "the commit exists", COMMIT_EXISTS_ON_GITHUB: "the commit is on GitHub (not fetched here yet)", COMMIT_UNKNOWN_IN_THESE_REPOSITORIES: "no such commit in the repositories looked at",
+    NO_COMMIT_YET: "no commit at all yet", LAST_COMMIT_OLDER_THAN_SESSION: "the last commit is older than the session", CHANGES_STILL_UNCOMMITTED: "some changes are still uncommitted",
+    HEAD_COMMITTED_AND_TREE_CLEAN: "everything is committed", NO_REMOTE_CONFIGURED: "there is no remote to push to", NO_CURRENT_BRANCH: "no current branch",
+    REMOTE_UNREACHABLE: "the remote can't be reached", BRANCH_ABSENT_ON_REMOTE: "the branch isn't on the remote", REMOTE_HAS_THIS_COMMIT: "the remote does have this commit",
+    REMOTE_CONTAINS_THIS_COMMIT: "the remote contains this commit", REMOTE_DOES_NOT_HAVE_THIS_COMMIT: "the remote doesn't have this commit",
+    GITHUB_CLI_MISSING: "the GitHub tool isn't installed", PULL_REQUEST_UNKNOWN: "no such pull request", GITHUB_UNREACHABLE: "GitHub can't be reached", GITHUB_ANSWER_UNREADABLE: "GitHub's answer can't be read",
+    PULL_REQUEST_EXISTS: "the pull request exists", PULL_REQUEST_MERGED: "the pull request is merged", PULL_REQUEST_CLOSED_UNMERGED: "the pull request was closed without merging", PULL_REQUEST_STILL_OPEN: "the pull request is still open",
+    NO_TEST_COMMAND_DECLARED: "you haven't said how to run the tests", TEST_COMMAND_NOT_FOUND: "the test command can't be found", TEST_COMMAND_TIMED_OUT: "the tests didn't finish in time",
+    TESTS_FAIL_NOW: "run again just now, twice: they fail", TESTS_PASS_NOW: "run again just now: they pass", TESTS_PASS_ON_SECOND_RUN: "they pass on the second run, not the first: unstable", TESTS_PASS_NOW_BUT_COUNT_DIFFERS: "the tests declared here pass, but not the number announced: they may not be the same tests",
+    NO_REPOSITORY_TO_ASK: "no repository to ask has been declared", COMMENT_EXISTS: "the comment is on GitHub", COMMENT_UNKNOWN: "no such comment on GitHub",
+    COMMENT_IS_ON_ANOTHER_ISSUE: "the comment exists, but not where the AI says", REPOSITORY_UNKNOWN: "no such repository on GitHub", REPOSITORY_IS_PUBLIC: "the repository is public, though the AI says private",
+    REPOSITORY_OLDER_THAN_SESSION: "the repository already existed before this session", REPOSITORY_EXISTS: "the repository exists", REPOSITORY_EXISTS_AND_IS_PRIVATE: "the repository exists and is private",
+    NO_WAY_TO_MEASURE_DECLARED: "SkeptOpus can't redo this measurement: you haven't told it how", MEASURE_COMMAND_NOT_FOUND: "the measurement command can't be found", MEASURE_TIMED_OUT: "the measurement didn't finish in time",
+    MEASURE_STARTED_IN_BACKGROUND: "long measurement started in the background: the result will land in the journal", MEASURE_COULD_NOT_RUN: "the measurement couldn't run (server stopped, for instance)",
+    MEASURED_AGAIN_OK: "measured again just now: it holds", MEASURED_AGAIN_FAILED: "measured again just now: it doesn't hold",
+    NOTHING_CHECKABLE_WAS_CLAIMED: "nothing checkable is claimed", NO_OBSERVER_FOR_THIS_CLAIM: "SkeptOpus can't check this yet", OBSERVER_CRASHED: "SkeptOpus crashed while looking",
+    INDEED_NOT: "indeed, it isn't done", IT_HAPPENED_ANYWAY: "and yet it is done",
+  },
+  fr: {
+    FILE_ABSENT: "le fichier n'existe pas", FILE_EMPTY: "le fichier est vide", NOT_A_FILE: "ce n'est pas un fichier", FILE_OLDER_THAN_SESSION: "le fichier date d'avant cette session",
+    FILE_PRESENT_AND_FRESH: "le fichier est là, écrit pendant la session", FILE_PRESENT_AGE_UNKNOWN: "le fichier est là (âge non comparé)", FILE_UNREADABLE: "fichier illisible", FILE_PRESENT: "le fichier est là", FOLDER_PRESENT: "le dossier est là",
+    NO_GIT_REPOSITORY_HERE: "pas de dépôt git ici", COMMIT_EXISTS: "l'enregistrement existe", COMMIT_EXISTS_ON_GITHUB: "l'enregistrement existe sur GitHub (pas encore rapatrié ici)", COMMIT_UNKNOWN_IN_THESE_REPOSITORIES: "enregistrement introuvable dans les dépôts regardés",
+    NO_COMMIT_YET: "aucun enregistrement", LAST_COMMIT_OLDER_THAN_SESSION: "le dernier enregistrement date d'avant la session", CHANGES_STILL_UNCOMMITTED: "des changements ne sont pas enregistrés",
+    HEAD_COMMITTED_AND_TREE_CLEAN: "tout est enregistré", NO_REMOTE_CONFIGURED: "aucun dépôt distant n'est configuré", NO_CURRENT_BRANCH: "pas de branche courante",
+    REMOTE_UNREACHABLE: "dépôt distant injoignable", BRANCH_ABSENT_ON_REMOTE: "la branche n'existe pas sur le dépôt distant", REMOTE_HAS_THIS_COMMIT: "le dépôt distant a bien cet enregistrement",
+    REMOTE_CONTAINS_THIS_COMMIT: "le dépôt distant contient cet enregistrement", REMOTE_DOES_NOT_HAVE_THIS_COMMIT: "le dépôt distant n'a pas cet enregistrement",
+    GITHUB_CLI_MISSING: "outil GitHub absent", PULL_REQUEST_UNKNOWN: "demande introuvable", GITHUB_UNREACHABLE: "GitHub injoignable", GITHUB_ANSWER_UNREADABLE: "réponse de GitHub illisible",
+    PULL_REQUEST_EXISTS: "la demande existe", PULL_REQUEST_MERGED: "la demande est fusionnée", PULL_REQUEST_CLOSED_UNMERGED: "la demande est fermée sans fusion", PULL_REQUEST_STILL_OPEN: "la demande est encore ouverte",
+    NO_TEST_COMMAND_DECLARED: "aucune commande de test déclarée par vous", TEST_COMMAND_NOT_FOUND: "commande de test introuvable", TEST_COMMAND_TIMED_OUT: "les tests n'ont pas fini à temps",
+    TESTS_FAIL_NOW: "relancés deux fois à l'instant : ils échouent", TESTS_PASS_NOW: "relancés à l'instant : ils passent", TESTS_PASS_ON_SECOND_RUN: "ils passent au second essai, pas au premier : résultat instable", TESTS_PASS_NOW_BUT_COUNT_DIFFERS: "les tests déclarés ici passent, mais pas le nombre annoncé : ce ne sont peut-être pas les mêmes",
+    NO_REPOSITORY_TO_ASK: "aucun dépôt à interroger n'est déclaré", COMMENT_EXISTS: "le commentaire existe sur GitHub", COMMENT_UNKNOWN: "commentaire introuvable sur GitHub",
+    COMMENT_IS_ON_ANOTHER_ISSUE: "le commentaire existe, mais ailleurs que là où l'IA le dit", REPOSITORY_UNKNOWN: "dépôt introuvable sur GitHub", REPOSITORY_IS_PUBLIC: "le dépôt est public, alors que l'IA le dit privé",
+    REPOSITORY_OLDER_THAN_SESSION: "le dépôt existait déjà avant cette session", REPOSITORY_EXISTS: "le dépôt existe", REPOSITORY_EXISTS_AND_IS_PRIVATE: "le dépôt existe et il est privé",
+    NO_WAY_TO_MEASURE_DECLARED: "SkeptOpus ne sait pas refaire cette mesure : vous ne lui avez pas dit comment", MEASURE_COMMAND_NOT_FOUND: "commande de mesure introuvable", MEASURE_TIMED_OUT: "la mesure n'a pas fini à temps",
+    MEASURE_STARTED_IN_BACKGROUND: "mesure longue lancée en arrière-plan : le résultat arrivera dans le journal", MEASURE_COULD_NOT_RUN: "la mesure n'a pas pu se faire (serveur arrêté, par exemple)",
+    MEASURED_AGAIN_OK: "mesuré de nouveau à l'instant : c'est bon", MEASURED_AGAIN_FAILED: "mesuré de nouveau à l'instant : ce n'est pas bon",
+    NOTHING_CHECKABLE_WAS_CLAIMED: "rien de vérifiable n'est affirmé", NO_OBSERVER_FOR_THIS_CLAIM: "SkeptOpus ne sait pas encore vérifier ça", OBSERVER_CRASHED: "SkeptOpus a planté en regardant",
+    INDEED_NOT: "en effet, ce n'est pas fait", IT_HAPPENED_ANYWAY: "pourtant, c'est fait",
+  },
+  es: {
+    FILE_ABSENT: "el archivo no existe", FILE_EMPTY: "el archivo está vacío", NOT_A_FILE: "eso no es un archivo", FILE_OLDER_THAN_SESSION: "el archivo es anterior a esta sesión",
+    FILE_PRESENT_AND_FRESH: "el archivo está ahí, escrito durante la sesión", FILE_PRESENT_AGE_UNKNOWN: "el archivo está ahí (sin comparar fechas)", FILE_UNREADABLE: "el archivo no se puede leer", FILE_PRESENT: "el archivo está ahí", FOLDER_PRESENT: "la carpeta está ahí",
+    NO_GIT_REPOSITORY_HERE: "aquí no hay repositorio git", COMMIT_EXISTS: "el commit existe", COMMIT_EXISTS_ON_GITHUB: "el commit está en GitHub (aún sin traer aquí)", COMMIT_UNKNOWN_IN_THESE_REPOSITORIES: "ni rastro de ese commit en los repositorios revisados",
+    NO_COMMIT_YET: "todavía no hay ningún commit", LAST_COMMIT_OLDER_THAN_SESSION: "el último commit es anterior a la sesión", CHANGES_STILL_UNCOMMITTED: "quedan cambios sin commitear",
+    HEAD_COMMITTED_AND_TREE_CLEAN: "todo está commiteado", NO_REMOTE_CONFIGURED: "no hay ningún remoto configurado", NO_CURRENT_BRANCH: "no hay rama actual",
+    REMOTE_UNREACHABLE: "no se llega al remoto", BRANCH_ABSENT_ON_REMOTE: "la rama no está en el remoto", REMOTE_HAS_THIS_COMMIT: "el remoto sí tiene este commit",
+    REMOTE_CONTAINS_THIS_COMMIT: "el remoto contiene este commit", REMOTE_DOES_NOT_HAVE_THIS_COMMIT: "el remoto no tiene este commit",
+    GITHUB_CLI_MISSING: "falta la herramienta de GitHub", PULL_REQUEST_UNKNOWN: "esa pull request no aparece", GITHUB_UNREACHABLE: "no se llega a GitHub", GITHUB_ANSWER_UNREADABLE: "la respuesta de GitHub no se entiende",
+    PULL_REQUEST_EXISTS: "la pull request existe", PULL_REQUEST_MERGED: "la pull request está fusionada", PULL_REQUEST_CLOSED_UNMERGED: "la pull request se cerró sin fusionar", PULL_REQUEST_STILL_OPEN: "la pull request sigue abierta",
+    NO_TEST_COMMAND_DECLARED: "no has dicho cómo lanzar los tests", TEST_COMMAND_NOT_FOUND: "no aparece el comando de tests", TEST_COMMAND_TIMED_OUT: "los tests no terminaron a tiempo",
+    TESTS_FAIL_NOW: "relanzados ahora mismo, dos veces: fallan", TESTS_PASS_NOW: "relanzados ahora mismo: pasan", TESTS_PASS_ON_SECOND_RUN: "pasan a la segunda, no a la primera: resultado inestable", TESTS_PASS_NOW_BUT_COUNT_DIFFERS: "los tests declarados aquí pasan, pero no en el número anunciado: puede que no sean los mismos",
+    NO_REPOSITORY_TO_ASK: "no hay ningún repositorio declarado al que preguntar", COMMENT_EXISTS: "el comentario está en GitHub", COMMENT_UNKNOWN: "ese comentario no aparece en GitHub",
+    COMMENT_IS_ON_ANOTHER_ISSUE: "el comentario existe, pero no donde dice la IA", REPOSITORY_UNKNOWN: "ese repositorio no aparece en GitHub", REPOSITORY_IS_PUBLIC: "el repositorio es público, aunque la IA dice que es privado",
+    REPOSITORY_OLDER_THAN_SESSION: "el repositorio ya existía antes de esta sesión", REPOSITORY_EXISTS: "el repositorio existe", REPOSITORY_EXISTS_AND_IS_PRIVATE: "el repositorio existe y es privado",
+    NO_WAY_TO_MEASURE_DECLARED: "SkeptOpus no sabe repetir esta medición: no le has dicho cómo", MEASURE_COMMAND_NOT_FOUND: "no aparece el comando de medición", MEASURE_TIMED_OUT: "la medición no terminó a tiempo",
+    MEASURE_STARTED_IN_BACKGROUND: "medición larga lanzada en segundo plano: el resultado llegará al diario", MEASURE_COULD_NOT_RUN: "no se pudo medir (servidor parado, por ejemplo)",
+    MEASURED_AGAIN_OK: "medido de nuevo ahora mismo: se cumple", MEASURED_AGAIN_FAILED: "medido de nuevo ahora mismo: no se cumple",
+    NOTHING_CHECKABLE_WAS_CLAIMED: "no afirma nada que se pueda comprobar", NO_OBSERVER_FOR_THIS_CLAIM: "SkeptOpus aún no sabe comprobar esto", OBSERVER_CRASHED: "SkeptOpus se cayó al mirar",
+    INDEED_NOT: "en efecto, no está hecho", IT_HAPPENED_ANYWAY: "y sin embargo, está hecho",
+  },
+  zh: {
+    FILE_ABSENT: "文件不存在", FILE_EMPTY: "文件是空的", NOT_A_FILE: "这不是文件", FILE_OLDER_THAN_SESSION: "文件在本次会话之前就有了",
+    FILE_PRESENT_AND_FRESH: "文件在，是本次会话里写的", FILE_PRESENT_AGE_UNKNOWN: "文件在（没比对时间）", FILE_UNREADABLE: "文件读不了", FILE_PRESENT: "文件在", FOLDER_PRESENT: "文件夹在",
+    NO_GIT_REPOSITORY_HERE: "这里没有 git 仓库", COMMIT_EXISTS: "这个提交存在", COMMIT_EXISTS_ON_GITHUB: "这个提交在 GitHub 上（本地还没拉取）", COMMIT_UNKNOWN_IN_THESE_REPOSITORIES: "查过的仓库里都没有这个提交",
+    NO_COMMIT_YET: "还没有任何提交", LAST_COMMIT_OLDER_THAN_SESSION: "最后一次提交早于本次会话", CHANGES_STILL_UNCOMMITTED: "还有改动没提交",
+    HEAD_COMMITTED_AND_TREE_CLEAN: "全部已提交", NO_REMOTE_CONFIGURED: "没有配置远程仓库", NO_CURRENT_BRANCH: "当前不在任何分支上",
+    REMOTE_UNREACHABLE: "连不上远程仓库", BRANCH_ABSENT_ON_REMOTE: "远程仓库上没有这个分支", REMOTE_HAS_THIS_COMMIT: "远程仓库确实有这个提交",
+    REMOTE_CONTAINS_THIS_COMMIT: "远程仓库包含这个提交", REMOTE_DOES_NOT_HAVE_THIS_COMMIT: "远程仓库没有这个提交",
+    GITHUB_CLI_MISSING: "没装 GitHub 命令行工具", PULL_REQUEST_UNKNOWN: "找不到这个 PR", GITHUB_UNREACHABLE: "连不上 GitHub", GITHUB_ANSWER_UNREADABLE: "GitHub 的返回看不懂",
+    PULL_REQUEST_EXISTS: "这个 PR 存在", PULL_REQUEST_MERGED: "这个 PR 已合并", PULL_REQUEST_CLOSED_UNMERGED: "这个 PR 没合并就关了", PULL_REQUEST_STILL_OPEN: "这个 PR 还开着",
+    NO_TEST_COMMAND_DECLARED: "你还没说怎么跑测试", TEST_COMMAND_NOT_FOUND: "找不到测试命令", TEST_COMMAND_TIMED_OUT: "测试没在限定时间内跑完",
+    TESTS_FAIL_NOW: "刚重跑了两遍：都没过", TESTS_PASS_NOW: "刚重跑了一遍：通过", TESTS_PASS_ON_SECOND_RUN: "第一遍没过，第二遍才过：结果不稳定", TESTS_PASS_NOW_BUT_COUNT_DIFFERS: "这里声明的测试通过了，但数量和说的对不上：可能不是同一批测试",
+    NO_REPOSITORY_TO_ASK: "没有声明可以查询的仓库", COMMENT_EXISTS: "GitHub 上有这条评论", COMMENT_UNKNOWN: "GitHub 上找不到这条评论",
+    COMMENT_IS_ON_ANOTHER_ISSUE: "评论是有，但不在 AI 说的地方", REPOSITORY_UNKNOWN: "GitHub 上找不到这个仓库", REPOSITORY_IS_PUBLIC: "仓库是公开的，AI 却说是私有的",
+    REPOSITORY_OLDER_THAN_SESSION: "这个仓库在本次会话之前就有了", REPOSITORY_EXISTS: "仓库存在", REPOSITORY_EXISTS_AND_IS_PRIVATE: "仓库存在，而且是私有的",
+    NO_WAY_TO_MEASURE_DECLARED: "SkeptOpus 没法重做这项检测：你没告诉它怎么做", MEASURE_COMMAND_NOT_FOUND: "找不到检测命令", MEASURE_TIMED_OUT: "检测没在限定时间内完成",
+    MEASURE_STARTED_IN_BACKGROUND: "耗时的检测已在后台启动：结果会记到日志里", MEASURE_COULD_NOT_RUN: "检测没能进行（比如服务没启动）",
+    MEASURED_AGAIN_OK: "刚又测了一遍：没问题", MEASURED_AGAIN_FAILED: "刚又测了一遍：不对",
+    NOTHING_CHECKABLE_WAS_CLAIMED: "没有可核实的说法", NO_OBSERVER_FOR_THIS_CLAIM: "SkeptOpus 暂时还不会核实这个", OBSERVER_CRASHED: "SkeptOpus 查看时出错了",
+    INDEED_NOT: "确实没做", IT_HAPPENED_ANYWAY: "可实际上已经做了",
+  },
+  ar: {
+    FILE_ABSENT: "الملف غير موجود", FILE_EMPTY: "الملف فارغ", NOT_A_FILE: "هذا ليس ملفًا", FILE_OLDER_THAN_SESSION: "الملف أقدم من هذه الجلسة",
+    FILE_PRESENT_AND_FRESH: "الملف موجود، وكُتب خلال الجلسة", FILE_PRESENT_AGE_UNKNOWN: "الملف موجود (لم يُقارَن تاريخه)", FILE_UNREADABLE: "تعذّرت قراءة الملف", FILE_PRESENT: "الملف موجود", FOLDER_PRESENT: "المجلد موجود",
+    NO_GIT_REPOSITORY_HERE: "لا يوجد مستودع git هنا", COMMIT_EXISTS: "الـ commit موجود", COMMIT_EXISTS_ON_GITHUB: "الـ commit موجود على GitHub (لم يُجلَب إلى هنا بعد)", COMMIT_UNKNOWN_IN_THESE_REPOSITORIES: "لا أثر لهذا الـ commit في المستودعات التي فُحصت",
+    NO_COMMIT_YET: "لا يوجد أي commit بعد", LAST_COMMIT_OLDER_THAN_SESSION: "آخر commit أقدم من الجلسة", CHANGES_STILL_UNCOMMITTED: "ما زالت هناك تغييرات بلا commit",
+    HEAD_COMMITTED_AND_TREE_CLEAN: "كل شيء محفوظ في commit", NO_REMOTE_CONFIGURED: "لا يوجد مستودع بعيد مُعرَّف", NO_CURRENT_BRANCH: "لا يوجد فرع حالي",
+    REMOTE_UNREACHABLE: "تعذّر الوصول إلى المستودع البعيد", BRANCH_ABSENT_ON_REMOTE: "الفرع غير موجود على المستودع البعيد", REMOTE_HAS_THIS_COMMIT: "المستودع البعيد فيه هذا الـ commit فعلًا",
+    REMOTE_CONTAINS_THIS_COMMIT: "المستودع البعيد يحتوي هذا الـ commit", REMOTE_DOES_NOT_HAVE_THIS_COMMIT: "المستودع البعيد ليس فيه هذا الـ commit",
+    GITHUB_CLI_MISSING: "أداة GitHub غير مثبّتة", PULL_REQUEST_UNKNOWN: "لا أثر لهذا الـ PR", GITHUB_UNREACHABLE: "تعذّر الوصول إلى GitHub", GITHUB_ANSWER_UNREADABLE: "ردّ GitHub غير مفهوم",
+    PULL_REQUEST_EXISTS: "الـ PR موجود", PULL_REQUEST_MERGED: "الـ PR مدموج", PULL_REQUEST_CLOSED_UNMERGED: "أُغلق الـ PR دون دمج", PULL_REQUEST_STILL_OPEN: "الـ PR ما زال مفتوحًا",
+    NO_TEST_COMMAND_DECLARED: "لم تحدِّد طريقة تشغيل الاختبارات", TEST_COMMAND_NOT_FOUND: "أمر الاختبارات غير موجود", TEST_COMMAND_TIMED_OUT: "لم تنتهِ الاختبارات في الوقت المحدَّد",
+    TESTS_FAIL_NOW: "أُعيد تشغيلها الآن مرتين: فشلت", TESTS_PASS_NOW: "أُعيد تشغيلها الآن: نجحت", TESTS_PASS_ON_SECOND_RUN: "نجحت في المرة الثانية لا الأولى: نتيجة غير مستقرة", TESTS_PASS_NOW_BUT_COUNT_DIFFERS: "الاختبارات المُعرَّفة هنا نجحت، لكن العدد يخالف المُعلَن: قد لا تكون هي نفسها",
+    NO_REPOSITORY_TO_ASK: "لم يُحدَّد أي مستودع للاستعلام منه", COMMENT_EXISTS: "التعليق موجود على GitHub", COMMENT_UNKNOWN: "لا أثر لهذا التعليق على GitHub",
+    COMMENT_IS_ON_ANOTHER_ISSUE: "التعليق موجود، لكن في غير المكان الذي ذكره الذكاء الاصطناعي", REPOSITORY_UNKNOWN: "لا أثر لهذا المستودع على GitHub", REPOSITORY_IS_PUBLIC: "المستودع عام، والذكاء الاصطناعي يقول إنه خاص",
+    REPOSITORY_OLDER_THAN_SESSION: "المستودع كان موجودًا قبل هذه الجلسة", REPOSITORY_EXISTS: "المستودع موجود", REPOSITORY_EXISTS_AND_IS_PRIVATE: "المستودع موجود وهو خاص",
+    NO_WAY_TO_MEASURE_DECLARED: "SkeptOpus لا يستطيع إعادة هذا القياس: لم تُخبره بالطريقة", MEASURE_COMMAND_NOT_FOUND: "أمر القياس غير موجود", MEASURE_TIMED_OUT: "لم ينتهِ القياس في الوقت المحدَّد",
+    MEASURE_STARTED_IN_BACKGROUND: "قياس طويل بدأ في الخلفية: ستظهر نتيجته في السجل", MEASURE_COULD_NOT_RUN: "تعذّر إجراء القياس (الخادم متوقف مثلًا)",
+    MEASURED_AGAIN_OK: "أُعيد القياس الآن: النتيجة سليمة", MEASURED_AGAIN_FAILED: "أُعيد القياس الآن: النتيجة غير سليمة",
+    NOTHING_CHECKABLE_WAS_CLAIMED: "لا ادّعاء يمكن التحقق منه", NO_OBSERVER_FOR_THIS_CLAIM: "SkeptOpus لا يعرف بعدُ كيف يتحقق من هذا", OBSERVER_CRASHED: "تعطّل SkeptOpus أثناء الفحص",
+    INDEED_NOT: "فعلًا، لم يحصل", IT_HAPPENED_ANYWAY: "ومع ذلك فقد حصل",
+  },
+};
+
+/** One reason, or two tied together ("INDEED_NOT:NO_REMOTE_CONFIGURED"), said in the reader's language. */
+export function say(lang, why) {
+  const l = pickLang(lang);
+  const table = WHY[l];
+  const [head, rest] = String(why).split(":");
+  const plain = (code) => table[code] ?? WHY.en[code] ?? code.toLowerCase().replace(/_/g, " ");
+  return rest ? plain(head) + WORDS[l].open + plain(rest) + WORDS[l].close : plain(why);
+}
+
+// The journal page.
+export const PAGE = {
+  en: {
+    over: "Journal", slogan: "Done? Show me.",
+    moodNone: "Nothing to check so far today.",
+    moodCalm: (n) => `Today: ${n} ${many(n, "thing", "things")} seen, nothing to report.`,
+    moodBlind: (b, s) => `Today: ${b} ${many(b, "thing", "things")} it couldn't look at` + (s ? `, ${s} seen` : "") + ".",
+    moodAlert: (a, r) => "Today: " + [a ? a + " contradicted" : "", r ? r + " not found" : ""].filter(Boolean).join(" and ") + ". Worth a look.",
+    tiles: { PROVEN: "seen today", NOT_PROVEN: "not found", CONTRADICTED: "contradicted", COULD_NOT_CHECK: "couldn't look" },
+    whatTitle: "What is SkeptOpus?",
+    what: [
+      "When an AI tells you “it's done”, SkeptOpus goes and looks. It checks the files, the commits and what was sent, by itself. It doesn't take the AI's word for it.",
+      "<strong>Four answers.</strong> SEEN: it looked, it's true. NOT FOUND: it looked and found nothing. CONTRADICTED: it found the opposite. COULDN'T LOOK: it had no way to look, so it concludes nothing.",
+      "<strong>“Seen” means done, not done well.</strong> It checks that the thing exists, not that it's any good. It never blocks anything: it tells you.",
+    ],
+    empty: "Nothing yet. SkeptOpus will write here as soon as an AI claims it did something.",
+    none: "Nothing checkable in this text", replayed: "read after the fact", fresh: "new", not: "did not: ",
+    crewTitle: "The five who say “it's done”",
+    crew: {
+      ant: { name: "The ant", line: "Here. It's on your desk. Go look." },
+      albatross: { name: "The albatross", line: "First thing tomorrow. Promise." },
+      pigeon: { name: "The pigeon", line: "No, it went out this morning. It says delivered on my end." },
+      frog: { name: "The frog", line: "No, no, don't worry. We're all green!" },
+      mole: { name: "The mole", line: "Me? I didn't see a thing. I didn't have access." },
+    },
+    updTitle: "Last update",
+    upd: (d, n) => `Page written on ${d}. ${n} ${many(n, "check", "checks")} shown. It reloads by itself when you come back to it.`,
+    erratum: "Correction.", heroAlt: "SkeptOpus, the octopus", langs: "Language",
+    asleep: ["Nothing new for {n} minutes. The octopus is resting.", "Nothing new for an hour. The octopus is resting.", "Nothing new for {n} hours. The octopus is resting."],
+    sources: { clipboard: "clipboard", remeasured: "measured again", trial: "trial" },
+    quotes: ["“", "”"],
+  },
+  fr: {
+    over: "Journal", slogan: "C'est fait ? Fais voir.",
+    moodNone: "Rien à vérifier aujourd'hui pour l'instant.",
+    moodCalm: (n) => `Aujourd'hui : ${n} ${many(n, "chose vue", "choses vues")}, rien à signaler.`,
+    moodBlind: (b, s) => `Aujourd'hui : ${b} ${many(b, "chose", "choses")} qu'il n'a pas pu voir` + (s ? `, ${s} ${many(s, "vue", "vues")}` : "") + ".",
+    moodAlert: (a, r) => "Aujourd'hui : " + [a ? a + many(a, " contredit", " contredits") : "", r ? r + many(r, " refusé", " refusés") : ""].filter(Boolean).join(" et ") + ". À regarder.",
+    tiles: { PROVEN: "vus aujourd'hui", NOT_PROVEN: "refusés", CONTRADICTED: "contredits", COULD_NOT_CHECK: "pas pu voir" },
+    whatTitle: "C'est quoi, SkeptOpus ?",
+    what: [
+      "Quand une IA vous dit « c'est fait », SkeptOpus va voir si c'est vrai. Il regarde lui-même les fichiers, les enregistrements, les envois. Il ne croit pas l'IA sur parole.",
+      "<strong>Quatre réponses.</strong> VU : il a regardé, c'est vrai. REFUSÉ : il a regardé, il n'a rien trouvé. CONTREDIT : il a trouvé le contraire. PAS PU VOIR : il n'a pas pu regarder, donc il ne conclut rien.",
+      "<strong>« Vu » veut dire fait, pas bien fait.</strong> Il vérifie que la chose existe, pas qu'elle est bonne. Il ne bloque rien : il vous informe.",
+    ],
+    empty: "Rien pour l'instant. SkeptOpus écrira ici dès qu'une IA affirmera avoir fait quelque chose.",
+    none: "Rien de vérifiable dans ce texte", replayed: "relu après coup", fresh: "nouveau", not: "n'a pas : ",
+    crewTitle: "Les cinq qui disent « c'est fait »",
+    crew: {
+      ant: { name: "La fourmi", line: "Tiens, c'est là. Tu peux regarder." },
+      albatross: { name: "L'albatros", line: "Je te fais ça demain matin, sans faute." },
+      pigeon: { name: "Le pigeon", line: "Ben si, c'est parti ce matin. Chez moi, c'est marqué livré." },
+      frog: { name: "La grenouille", line: "Mais non, t'inquiète, tout est au vert !" },
+      mole: { name: "La taupe", line: "Ah moi j'ai rien vu, hein. J'avais pas les accès." },
+    },
+    updTitle: "Mise à jour",
+    upd: (d, n) => `Page écrite le ${d}. ${n} ${many(n, "vérification affichée", "vérifications affichées")}. Elle se recharge seule quand vous y revenez.`,
+    erratum: "Erratum.", heroAlt: "SkeptOpus, la pieuvre", langs: "Langue",
+    asleep: ["Rien de nouveau depuis {n} minutes. La pieuvre se repose.", "Rien de nouveau depuis une heure. La pieuvre se repose.", "Rien de nouveau depuis {n} heures. La pieuvre se repose."],
+    sources: { clipboard: "presse-papiers", remeasured: "mesure refaite", trial: "essai" },
+    quotes: ["« ", " »"],
+  },
+  es: {
+    over: "Diario", slogan: "¿Hecho? A ver.",
+    moodNone: "Hoy, de momento, nada que comprobar.",
+    moodCalm: (n) => `Hoy: ${n} ${many(n, "cosa vista", "cosas vistas")}, sin novedad.`,
+    moodBlind: (b, s) => `Hoy: ${b} ${many(b, "cosa", "cosas")} que no pudo mirar` + (s ? `, ${s} ${many(s, "vista", "vistas")}` : "") + ".",
+    moodAlert: (a, r) => "Hoy: " + [a ? a + many(a, " desmentido", " desmentidos") : "", r ? r + many(r, " que no consta", " que no constan") : ""].filter(Boolean).join(" y ") + ". Échale un ojo.",
+    tiles: { PROVEN: "vistos hoy", NOT_PROVEN: "no constan", CONTRADICTED: "desmentidos", COULD_NOT_CHECK: "no se pudo ver" },
+    whatTitle: "¿Qué es SkeptOpus?",
+    what: [
+      "Cuando una IA te dice «ya está hecho», SkeptOpus va y lo mira. Comprueba por su cuenta los archivos, los commits y lo que se ha enviado. No se fía de la palabra de la IA.",
+      "<strong>Cuatro respuestas.</strong> VISTO: ha mirado y es verdad. NO CONSTA: ha mirado y no ha encontrado nada. DESMENTIDO: ha encontrado lo contrario. NO SE PUDO VER: no tenía cómo mirar, así que no saca conclusiones.",
+      "<strong>«Visto» quiere decir hecho, no bien hecho.</strong> Comprueba que la cosa existe, no que esté bien. No bloquea nada: te avisa.",
+    ],
+    empty: "Todavía nada. SkeptOpus escribirá aquí en cuanto una IA diga que ha hecho algo.",
+    none: "Nada que comprobar en este texto", replayed: "revisado a toro pasado", fresh: "nuevo", not: "no: ",
+    crewTitle: "Los cinco que dicen «ya está hecho»",
+    crew: {
+      ant: { name: "La hormiga", line: "Toma. Lo tienes encima de la mesa." },
+      albatross: { name: "El albatros", line: "Mañana a primera hora, sin falta." },
+      pigeon: { name: "La paloma", line: "Que sí, que salió esta mañana. A mí me sale como entregado." },
+      frog: { name: "La rana", line: "Que no, tranqui, ¡que está todo en verde!" },
+      mole: { name: "El topo", line: "¿Yo? Yo no he visto nada. Es que no tenía acceso." },
+    },
+    updTitle: "Última actualización",
+    upd: (d, n) => `Página escrita el ${d}. ${n} ${many(n, "comprobación", "comprobaciones")} a la vista. Se recarga sola cuando vuelves.`,
+    erratum: "Fe de erratas.", heroAlt: "SkeptOpus, el pulpo", langs: "Idioma",
+    asleep: ["Sin novedades desde hace {n} minutos. El pulpo descansa.", "Sin novedades desde hace una hora. El pulpo descansa.", "Sin novedades desde hace {n} horas. El pulpo descansa."],
+    sources: { clipboard: "portapapeles", remeasured: "medido de nuevo", trial: "prueba" },
+    quotes: ["«", "»"],
+  },
+  zh: {
+    over: "日志", slogan: "搞定了？给我看看。",
+    moodNone: "今天暂时还没有要核实的。",
+    moodCalm: (n) => `今天核实了 ${n} 项，一切正常。`,
+    moodBlind: (b, s) => `今天：${b} 项无法核实` + (s ? `，${s} 项属实` : "") + "。",
+    moodAlert: (a, r) => "今天：" + [a ? a + " 条不属实" : "", r ? r + " 条查无实据" : ""].filter(Boolean).join("，") + "。值得看一眼。",
+    tiles: { PROVEN: "今日属实", NOT_PROVEN: "查无实据", CONTRADICTED: "不属实", COULD_NOT_CHECK: "无法核实" },
+    whatTitle: "SkeptOpus 是什么？",
+    what: [
+      "AI 跟你说“搞定了”，SkeptOpus 就亲自去看一眼：文件、提交记录、推送情况，它都自己查。AI 说了不算。",
+      "<strong>四种结论。</strong>属实：查过了，是真的。查无实据：查过了，什么也没找到。不属实：查到的情况正好相反。无法核实：没办法查，所以不下结论。",
+      "<strong>“属实”只代表做了，不代表做得好。</strong>它只确认东西在不在，不评价好坏。它从不拦你，只负责告诉你。",
+    ],
+    empty: "暂时还没有内容。只要有 AI 声称自己做了什么，SkeptOpus 就会记在这里。",
+    none: "这段话里没有可核实的内容", replayed: "事后补查", fresh: "新", not: "没有：",
+    crewTitle: "说“搞定了”的五位",
+    crew: {
+      ant: { name: "蚂蚁", line: "喏，放你桌上了，自己看。" },
+      albatross: { name: "信天翁", line: "明天一早就弄，我保证。" },
+      pigeon: { name: "鸽子", line: "发了发了，早上就发了。我这边显示已签收。" },
+      frog: { name: "青蛙", line: "没事没事，别担心，一路绿灯！" },
+      mole: { name: "鼹鼠", line: "我？我啥也没看见，我没权限啊。" },
+    },
+    updTitle: "更新时间",
+    upd: (d, n) => `页面生成于 ${d}，显示 ${n} 条核实记录。你回到本页时会自动刷新。`,
+    erratum: "更正：", heroAlt: "SkeptOpus，章鱼", langs: "语言",
+    asleep: ["已经 {n} 分钟没有新动静，章鱼在休息。", "已经一个小时没有新动静，章鱼在休息。", "已经 {n} 小时没有新动静，章鱼在休息。"],
+    sources: { clipboard: "剪贴板", remeasured: "重新检测", trial: "试验" },
+    quotes: ["“", "”"],
+  },
+  ar: {
+    over: "السجل", slogan: "خلاص؟ ورّيني.",
+    moodNone: "لا شيء للتحقق منه اليوم حتى الآن.",
+    moodCalm: (n) => `اليوم: عدد ما تأكّد ${n}، ولا شيء يُذكر.`,
+    moodBlind: (b, s) => `اليوم: تعذّر التحقق: ${b}` + (s ? `، مؤكَّد: ${s}` : "") + ".",
+    moodAlert: (a, r) => "اليوم: " + [a ? "خلاف الواقع: " + a : "", r ? "لا أثر له: " + r : ""].filter(Boolean).join("، ") + ". يستحق نظرة.",
+    tiles: { PROVEN: "مؤكَّد اليوم", NOT_PROVEN: "لا أثر له", CONTRADICTED: "خلاف الواقع", COULD_NOT_CHECK: "تعذّر التحقق" },
+    whatTitle: "ما هو SkeptOpus؟",
+    what: [
+      "حين يقول لك الذكاء الاصطناعي «تمّ»، يذهب SkeptOpus ليرى بنفسه: الملفات، والـ commits، وما أُرسل فعلًا. لا يأخذ كلام الذكاء الاصطناعي على عواهنه.",
+      "<strong>أربع إجابات.</strong> مؤكَّد: نظر فوجده صحيحًا. لا أثر له: نظر فلم يجد شيئًا. خلاف الواقع: وجد العكس. تعذّر التحقق: لم يجد سبيلًا للنظر، فلا يحكم بشيء.",
+      "<strong>«مؤكَّد» تعني أنه أُنجز، لا أنه أُنجز جيدًا.</strong> يتحقق من وجود الشيء لا من جودته. لا يمنعك من شيء: يُخبرك فقط.",
+    ],
+    empty: "لا شيء بعد. سيكتب SkeptOpus هنا حالما يدّعي ذكاء اصطناعي أنه أنجز شيئًا.",
+    none: "لا شيء في هذا النص يمكن التحقق منه", replayed: "رُوجع لاحقًا", fresh: "جديد", not: "ينفي: ",
+    crewTitle: "الخمسة الذين يقولون «تمّ»",
+    crew: {
+      ant: { name: "النملة", line: "تفضّل. على مكتبك." },
+      albatross: { name: "القطرس", line: "بكرة الصبح، أول شي. وعد." },
+      pigeon: { name: "الحمامة", line: "أكيد أرسلته الصبح. عندي مكتوب: تم التسليم." },
+      frog: { name: "الضفدع", line: "لا لا، لا تقلق، كله تمام!" },
+      mole: { name: "الخُلد", line: "أنا؟ ما شفت شي. ما عندي صلاحية." },
+    },
+    updTitle: "آخر تحديث",
+    upd: (d, n) => `كُتبت الصفحة في ${d}. عمليات التحقق المعروضة: ${n}. تتحدّث تلقائيًا عند عودتك إليها.`,
+    erratum: "تصويب:", heroAlt: "SkeptOpus، الأخطبوط", langs: "اللغة",
+    // Minutes; one hour; a few hours (3 to 10); exactly two hours; eleven hours and more.
+    asleep: ["لا جديد منذ {n} دقيقة. الأخطبوط يستريح.", "لا جديد منذ ساعة. الأخطبوط يستريح.", "لا جديد منذ {n} ساعات. الأخطبوط يستريح.", "لا جديد منذ ساعتين. الأخطبوط يستريح.", "لا جديد منذ {n} ساعة. الأخطبوط يستريح."],
+    sources: { clipboard: "الحافظة", remeasured: "قياس مُعاد", trial: "تجربة" },
+    quotes: ["«", "»"],
+  },
+};
+
+/** Where a check came from, in the reader's language. Entries kept before 2026-11-12 carry French words. */
+export function sourceLabel(lang, source) {
+  if (!source) return "";
+  const s = PAGE[pickLang(lang)].sources;
+  return String(source)
+    .replace(/^(presse-papiers|clipboard)$/, s.clipboard)
+    .replace(/ · (mesure refaite|remeasured)$/, " · " + s.remeasured)
+    .replace(/^essai\b/, s.trial);
+}

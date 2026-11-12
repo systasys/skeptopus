@@ -1,0 +1,9 @@
+{
+  "SkeptOpus could not start its engine.": "SkeptOpus 的引擎没能启动。",
+  "SkeptOpus is looking…": "SkeptOpus 正在查看…",
+  "Open the journal": "打开日志",
+  "SkeptOpus's triggers need Node.js 18 or later on this machine (nodejs.org). The journal and the clipboard check work without it.": "SkeptOpus 的触发器需要这台电脑装有 Node.js 18 或更高版本（nodejs.org）。日志和“核实复制内容”不需要它也能用。",
+  "Hook them": "接入",
+  "Hook the AI tools found on this machine?": "要接入这台电脑上找到的 AI 工具吗？",
+  "SkeptOpus adds one line to each tool's settings and keeps a copy of the settings as they were.": "SkeptOpus 只在每个工具的设置里加一行，并保留一份原设置的副本。"
+}
