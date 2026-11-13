@@ -143,14 +143,16 @@ test("extension: the package carries the engine, opens like any zip, and comes o
   // The two descriptions an editor reads first, then the extension.
   assert.deepEqual(Object.keys(files).slice(0, 2), ["extension.vsixmanifest", "[Content_Types].xml"]);
   const description = files["extension.vsixmanifest"].toString("utf8");
-  assert.match(description, /<Identity Language="en-US" Id="skeptopus" Version="0\.1\.0" Publisher="skeptopus"\/>/);
+  // The version is the extension's own, read from its manifest: a test that fixed it broke at the first new version.
+  const version = JSON.parse(readFileSync(resolve("extension", "package.json"), "utf8")).version;
+  assert.ok(description.includes(`<Identity Language="en-US" Id="skeptopus" Version="${version}" Publisher="skeptopus"/>`));
   assert.match(description, /<Description xml:space="preserve">Your AI says it's done\. SkeptOpus goes and looks\.<\/Description>/);
   assert.match(description, /<Asset Type="Microsoft\.VisualStudio\.Code\.Manifest" Path="extension\/package\.json"/);
   // Every kind of file inside is declared (the list of kinds itself is not a part of the package).
   const types = files["[Content_Types].xml"].toString("utf8");
   for (const name of Object.keys(files)) if (name !== "[Content_Types].xml") assert.ok(types.includes('Extension="' + /\.[^./]+$/.exec(name)[0].toLowerCase() + '"'), name);
   // The engine comes along whole, byte for byte, with its pictures, typefaces and sounds.
-  for (const f of ["cli.mjs", "claims.mjs", "observe.mjs", "words.mjs", "package.json", "art/skeptopus.webp", "fonts/inter.woff2", "sounds/contradicted.wav"]) assert.ok(files["extension/engine/" + f].equals(readFileSync(resolve("core", f))), f);
+  for (const f of ["cli.mjs", "claims.mjs", "observe.mjs", "words.mjs", "mcp.mjs", "package.json", "art/skeptopus.webp", "fonts/inter.woff2", "sounds/contradicted.wav"]) assert.ok(files["extension/engine/" + f].equals(readFileSync(resolve("core", f))), f);
   assert.ok(files["extension/extension.js"].equals(readFileSync(resolve("extension", "extension.js"))));
   // What only serves to try it in a real editor stays out.
   assert.equal(Object.keys(files).some((n) => n.includes("host-test")), false);

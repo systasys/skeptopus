@@ -1,0 +1,56 @@
+name: SkeptOpus
+description: "Your AI says it's done. SkeptOpus goes and looks: the claims of a pull request, checked against the code."
+author: SYSTASYS
+branding:
+  icon: eye
+  color: red
+
+inputs:
+  read:
+    description: "What to check: 'pull-request' (its description and its commit messages), or the path of a text file."
+    default: pull-request
+  fail-on:
+    description: "What fails the run: 'contradicted' (the default), 'problems' (contradicted or not found), 'anything' (anything not seen) or 'never'."
+    default: contradicted
+  settings:
+    description: "A SkeptOpus settings file in the repository: the test command, declared measurements. Optional. Never use this action on pull_request_target."
+    default: ""
+  lang:
+    description: "The language of the summary: en, fr, es, zh or ar."
+    default: en
+
+runs:
+  using: composite
+  steps:
+    # What the pull request says is written to a file and read from there: it is never pasted into a command.
+    - name: Gather what the pull request claims
+      shell: bash
+      env:
+        READ: ${{ inputs.read }}
+        BASE: ${{ github.event.pull_request.base.sha }}
+        HEAD: ${{ github.event.pull_request.head.sha }}
+      run: |
+        set -euo pipefail
+        out="$RUNNER_TEMP/skeptopus-claims.md"
+        if [ "$READ" = "pull-request" ]; then
+          jq -r '.pull_request.body // ""' "$GITHUB_EVENT_PATH" > "$out"
+          # The commit messages too, when the checkout has the history (actions/checkout with fetch-depth: 0).
+          if [ -n "${BASE:-}" ] && [ -n "${HEAD:-}" ]; then git log --format='%B' "$BASE..$HEAD" >> "$out" 2>/dev/null || true; fi
+        else
+          cp "$GITHUB_WORKSPACE/$READ" "$out"
+        fi
+        echo "SKEPTOPUS_CLAIMS=$out" >> "$GITHUB_ENV"
+    - name: Go and look
+      shell: bash
+      env:
+        FAIL_ON: ${{ inputs.fail-on }}
+        SETTINGS: ${{ inputs.settings }}
+        SUMMARY_LANG: ${{ inputs.lang }}
+      run: |
+        set -uo pipefail
+        if [ -n "$SETTINGS" ]; then export SKEPTOPUS_CONFIG="$GITHUB_WORKSPACE/$SETTINGS"; fi
+        export SKEPTOPUS_HOME="$RUNNER_TEMP/skeptopus-home"
+        node "$GITHUB_ACTION_PATH/core/cli.mjs" check --message-file "$SKEPTOPUS_CLAIMS" --cwd "$GITHUB_WORKSPACE" --lang "$SUMMARY_LANG" --format md --output "$RUNNER_TEMP/skeptopus.md" --fail-on "$FAIL_ON"
+        code=$?
+        cat "$RUNNER_TEMP/skeptopus.md" >> "$GITHUB_STEP_SUMMARY"
+        exit $code

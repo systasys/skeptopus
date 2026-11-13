@@ -9,7 +9,7 @@
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, join, resolve, sep } from "node:path";
 
 export const run = (cmd, args, options = {}) =>
   new Promise((done) =>
@@ -163,7 +163,8 @@ async function pullRequest(claim, ctx) {
 /** The names of the tests a run reports as failed, in the two shapes common runners print. */
 function failedNames(ran) {
   const out = String(ran.stdout ?? "") + "\n" + String(ran.stderr ?? "");
-  const names = [...out.matchAll(/^\s*(?:✖|not ok \d+ -)\s+(.+?)(?:\s+\(\d[\d.]*m?s\))?\s*$/gm)].map((m) => m[1].trim());
+  // Node's runner ends with a "✖ failing tests:" heading over the list: a heading, not a test (found on 2026-11-13).
+  const names = [...out.matchAll(/^\s*(?:✖|not ok \d+ -)\s+(.+?)(?:\s+\(\d[\d.]*m?s\))?\s*$/gm)].map((m) => m[1].trim()).filter((n) => !/^failing tests:?$/i.test(n));
   return [...new Set(names)].slice(0, 3).join(" ; ").slice(0, 200);
 }
 
@@ -309,7 +310,39 @@ async function measured(claim, ctx) {
   return ran.ok ? result("SEEN", "MEASURED_AGAIN_OK", facts) : result("AGAINST", "MEASURED_AGAIN_FAILED", facts);
 }
 
-const OBSERVERS = { COMMENT_POSTED: commentPosted, REPO_CREATED: repoCreated, MEASURED: measured, FILE_REFERENCED: fileWritten, FILE_WRITTEN: fileWritten, COMMITTED: committed, PUSHED: pushed, PR_MERGED: pullRequest, PR_OPENED: pullRequest, TESTS_PASS: testsPass };
+/**
+ * "Deployed, live at https://…": the page is opened, once, like anyone would open it: a plain GET, no cookie, no
+ * login, redirects followed, ten seconds at most. Turned off with "web": false in the user's settings.
+ */
+async function deployed(claim, ctx) {
+  if (ctx.config?.web === false) return result("COULD_NOT_LOOK", "WEB_CHECKS_TURNED_OFF", { url: claim.url });
+  const fetcher = ctx.fetch ?? globalThis.fetch;
+  if (typeof fetcher !== "function") return result("COULD_NOT_LOOK", "NO_WAY_TO_ASK_THE_WEB", { url: claim.url });
+  const key = "page:" + claim.url;
+  ctx.memo[key] ??= (async () => {
+    try {
+      const res = await fetcher(claim.url, { method: "GET", redirect: "follow", signal: AbortSignal.timeout(Number(ctx.config?.webTimeoutMs) > 0 ? Number(ctx.config.webTimeoutMs) : 10000), headers: { "user-agent": "SkeptOpus (it checks what an AI says is live)", accept: "text/html,application/json;q=0.9,*/*;q=0.8" } });
+      try {
+        await res.body?.cancel?.();
+      } catch {
+        // The answer's status is all that is read; a body that cannot be dropped changes nothing.
+      }
+      return { status: res.status, finalUrl: res.url };
+    } catch (error) {
+      return { error: String(error?.cause?.code ?? error?.name ?? error).slice(0, 60) };
+    }
+  })();
+  const got = await ctx.memo[key];
+  if (got.error) return result("COULD_NOT_LOOK", "SITE_UNREACHABLE", { url: claim.url, check: got.error });
+  const facts = { url: claim.url, status: got.status, check: "HTTP " + got.status, ...(got.finalUrl && got.finalUrl !== claim.url ? { finalUrl: got.finalUrl } : {}) };
+  if (got.status >= 200 && got.status < 400) return result("SEEN", "PAGE_ANSWERS", facts);
+  if (got.status === 404 || got.status === 410) return result("AGAINST", "PAGE_NOT_FOUND", facts);
+  if (got.status >= 500) return result("AGAINST", "PAGE_FAILS", facts);
+  if (got.status === 401 || got.status === 403) return result("COULD_NOT_LOOK", "PAGE_NEEDS_A_LOGIN", facts);
+  return result("COULD_NOT_LOOK", "PAGE_ANSWERS_OTHERWISE", facts);
+}
+
+const OBSERVERS = { DEPLOYED: deployed, COMMENT_POSTED: commentPosted, REPO_CREATED: repoCreated, MEASURED: measured, FILE_REFERENCED: fileWritten, FILE_WRITTEN: fileWritten, COMMITTED: committed, PUSHED: pushed, PR_MERGED: pullRequest, PR_OPENED: pullRequest, TESTS_PASS: testsPass };
 
 /** Reads the user's own configuration. Looked up in the user's home first: the agent works in the project, not there. */
 /** The folder that holds the user's settings and journal: ~/.skeptopus, or the one SKEPTOPUS_HOME names. */
@@ -351,7 +384,42 @@ export function loadConfig(explicit, cwd, env = process.env) {
     }
     merged.sources.push(resolve(path));
   }
+  // The user's own settings for one project live in the user's file, under "projects", keyed by folder: the most
+  // specific folder that holds the one being checked wins. A project's own file still cannot say what to run.
+  if (merged?.projects && typeof merged.projects === "object" && !Array.isArray(merged.projects)) {
+    const fold = (p) => (process.platform === "win32" ? resolve(p).toLowerCase() : resolve(p));
+    const here = fold(cwd);
+    const holds = (dir) => here === fold(dir) || here.startsWith(fold(dir).replace(/[\\/]+$/, "") + sep);
+    const key = Object.keys(merged.projects)
+      .filter((k) => merged.projects[k] && typeof merged.projects[k] === "object" && !Array.isArray(merged.projects[k]) && holds(k))
+      .sort((a, b) => fold(b).length - fold(a).length)[0];
+    if (key) {
+      for (const [k, value] of Object.entries(merged.projects[key])) {
+        if (k === "projects" || k === "trusted" || k === "sources") continue;
+        if (Array.isArray(value) && k !== "test") merged[k] = [...(Array.isArray(merged[k]) ? merged[k] : []), ...value];
+        else merged[k] = value;
+      }
+      merged.project = resolve(key);
+    }
+  }
+  if (merged) delete merged.projects;
   return merged;
+}
+
+// ---------- profiles: how demanding SkeptOpus is, and how much of it reaches the human ----------
+// calm: speaks up only when something is false. normal: the default. strict: a vague "done", tests that pass only
+// on a second run, and a file whose age cannot be compared are no longer counted as seen.
+export const PROFILES = ["calm", "normal", "strict"];
+export const profileOf = (config) => (PROFILES.includes(config?.profile) ? config.profile : "normal");
+const STRICT = {
+  NOTHING_CHECKABLE_WAS_CLAIMED: ["NOT_SEEN", "VAGUE_DONE_REFUSED"],
+  TESTS_PASS_ON_SECOND_RUN: ["COULD_NOT_LOOK", "TESTS_PASSED_ONLY_ON_SECOND_RUN"],
+  FILE_PRESENT_AGE_UNKNOWN: ["COULD_NOT_LOOK", "FILE_AGE_UNKNOWN"],
+};
+function strictly(seen, config) {
+  if (profileOf(config) !== "strict") return seen;
+  const to = STRICT[seen.why];
+  return to ? result(to[0], to[1], seen.facts) : seen;
 }
 /** Folders SkeptOpus may look in: where the agent works, plus the ones the user declared. */
 export const rootsOf = (cwd, config, extra = []) => [...new Set([cwd, ...extra, ...(Array.isArray(config?.roots) ? config.roots.filter((r) => typeof r === "string") : [])].filter(Boolean))];
@@ -361,6 +429,9 @@ export const rootsOf = (cwd, config, extra = []) => [...new Set([cwd, ...extra, 
  * @param ctx { roots: string[], sessionStart?: string, config?: object, run?: typeof run }
  */
 export async function observe(claim, ctx) {
+  return strictly(await look(claim, ctx), ctx.config);
+}
+async function look(claim, ctx) {
   ctx.memo ??= {};
   ctx.deferred ??= [];
   const context = { run, ...ctx };

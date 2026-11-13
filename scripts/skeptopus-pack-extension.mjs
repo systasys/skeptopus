@@ -10,12 +10,26 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { crc32, deflateRawSync } from "node:zlib";
+import * as zlib from "node:zlib";
+
+const { deflateRawSync } = zlib;
+// zlib.crc32 arrived with Node 20.15 and 22.2. On an older Node (18 is supported) the same arithmetic is written out:
+// found on 2026-11-13, when this file could not even load under Linux with Node 18.
+const crc32 =
+  zlib.crc32 ??
+  ((data) => {
+    let crc = 0xffffffff;
+    for (const byte of data) {
+      crc ^= byte;
+      for (let k = 0; k < 8; k++) crc = crc & 1 ? 0xedb88320 ^ (crc >>> 1) : crc >>> 1;
+    }
+    return (crc ^ 0xffffffff) >>> 0;
+  });
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 // What the extension is made of. The folder of tests that need a real editor stays out of the package.
 const OWN = ["package.json", "package.nls.json", "package.nls.fr.json", "package.nls.es.json", "package.nls.zh-cn.json", "extension.js", "README.md", "CHANGELOG.md", "lib", "l10n", "media"];
-const ENGINE = ["cli.mjs", "claims.mjs", "observe.mjs", "words.mjs", "package.json", "art", "fonts", "sounds"];
+const ENGINE = ["cli.mjs", "claims.mjs", "observe.mjs", "words.mjs", "mcp.mjs", "package.json", "art", "fonts", "sounds"];
 const TYPES = { ".json": "application/json", ".js": "application/javascript", ".mjs": "application/javascript", ".md": "text/markdown", ".txt": "text/plain", ".png": "image/png", ".svg": "image/svg+xml", ".webp": "image/webp", ".wav": "audio/wav", ".woff": "application/font-woff", ".woff2": "font/woff2", ".vsixmanifest": "text/xml" };
 
 function walk(dir, base = dir) {

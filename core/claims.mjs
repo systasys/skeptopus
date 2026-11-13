@@ -217,6 +217,17 @@ const REPO_MADE = new RegExp(
 );
 const REPO_NAME = /`([\w.-]+(?:\/[\w.-]+)?)`|\b([\w-]+\/[\w.-]+)\b/;
 const PRIVATE = new RegExp("\\b(prive[es]?|private|privad[oa]s?)\\b|私有|" + arWord("خاص"));
+// "Deployed, live at https://…": a page someone can open. Read on the plain sentence (no accents), with its address.
+const DEPLOYED = new RegExp(
+  "\\b(deployed|redeployed|is live|now live|went live|live at|is up at|up and running at|running at|served at|published (?:to|at|on)|shipped to|available at|" +
+    "deploye[es]?|redeploye[es]?|en ligne|mise? en production|en production sur|publie[es]? sur|accessible (?:sur|a)|tourne sur|" +
+    "desplegad[oa]s?|redesplegad[oa]s?|publicad[oa]s? en|en produccion|en linea|disponible en)\\b|" +
+    "已部署|部署了|部署到|已上线|上线了|已发布到|发布到了|" +
+    "تم النشر|تم نشر|منشور على|متاح على|يعمل على",
+);
+// An address that ends where a sentence or a bracket ends; a GitHub request or comment is checked as what it is.
+const PAGE_URL = /https?:\/\/[^\s<>"'`)\]}]+/g;
+const NOT_A_PAGE = /^https?:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(?:pull|issues|commit)\//;
 // Announced measurements: a zero ("aucune erreur"), a clean pass ("typage propre"), or a full count.
 const ZERO =
   /\b(?:aucun|aucune|zero|0|sans|no)\s+(?:\w+\s+)?(erreurs?|debordements?|echecs?|bugs?|avertissements?|regressions?|errors?|overflows?|failures?|warnings?)\b/;
@@ -285,7 +296,7 @@ export function extractClaims(text) {
   const seen = new Set();
   const add = (claim) => {
     const isFile = claim.kind.startsWith("FILE_");
-    const key = [isFile ? "FILE" : claim.kind, claim.negated, claim.path ?? claim.sha ?? claim.pr ?? claim.id ?? claim.name ?? claim.text ?? claim.total ?? ""].join("|");
+    const key = [isFile ? "FILE" : claim.kind, claim.negated, claim.path ?? claim.url ?? claim.sha ?? claim.pr ?? claim.id ?? claim.name ?? claim.text ?? claim.total ?? ""].join("|");
     if (!seen.has(key)) {
       seen.add(key);
       claims.push(claim);
@@ -314,6 +325,12 @@ export function extractClaims(text) {
       const name = REPO_NAME.exec(sentence);
       if (name) add({ kind: "REPO_CREATED", name: name[1] ?? name[2], private: PRIVATE.test(flat), negated: false, sentence: full });
     }
+    // A page said to be live is opened. "Not deployed yet" claims nothing to catch.
+    if (DEPLOYED.test(flat) && !NEGATION.test(flat))
+      for (const m of sentence.matchAll(PAGE_URL)) {
+        const url = m[0].replace(/[.,;:!?。，；！？]+$/, "");
+        if (!NOT_A_PAGE.test(url)) add({ kind: "DEPLOYED", url, negated: false, sentence: full });
+      }
     const zero = ZERO.exec(flat) ?? CLEAN.exec(flat) ?? ZERO_I18N.exec(flat);
     if (zero) add({ kind: "MEASURED", text: zero[0], negated: false, sentence: full });
     // Counts are read on the whole sentence ("Tests : 94/94").
@@ -360,5 +377,7 @@ export function extractClaims(text) {
       add({ kind: ref.kind, pr: ref.pr, ...(ref.repo ? { repo: ref.repo } : {}), negated: ref.negated, sentence: full });
     }
   }
-  return claims;
+  // "Done." followed by what was done is an opening word, not a vague answer: it is vague only when it is all there is.
+  // Found on 2026-11-13 on the run shown in the README: "Done. Committed …, pushed …" listed a vague "done" first.
+  return claims.some((c) => c.kind !== "VAGUE_DONE") ? claims.filter((c) => c.kind !== "VAGUE_DONE") : claims;
 }

@@ -21,7 +21,7 @@ const many = (n, one, more) => (n > 1 ? more : one);
 export const WORDS = {
   en: {
     PROVEN: "SEEN", NOT_PROVEN: "NOT FOUND", CONTRADICTED: "CONTRADICTED", COULD_NOT_CHECK: "COULDN'T LOOK", NOTHING_CLAIMED: "NOTHING CLAIMED",
-    kind: { FILE_REFERENCED: "file mentioned", FILE_WRITTEN: "file written", COMMITTED: "committed", PUSHED: "pushed", PR_MERGED: "pull request merged", PR_OPENED: "pull request opened", TESTS_PASS: "tests pass", COMMENT_POSTED: "comment posted", REPO_CREATED: "repository created", MEASURED: "announced measurement", VAGUE_DONE: "“done”, with no detail" },
+    kind: { DEPLOYED: "deployed", FILE_REFERENCED: "file mentioned", FILE_WRITTEN: "file written", COMMITTED: "committed", PUSHED: "pushed", PR_MERGED: "pull request merged", PR_OPENED: "pull request opened", TESTS_PASS: "tests pass", COMMENT_POSTED: "comment posted", REPO_CREATED: "repository created", MEASURED: "announced measurement", VAGUE_DONE: "“done”, with no detail" },
     not: "did NOT: ", none: "No checkable claim in this message.", head: "SkeptOpus", sep: ": ", open: " (", close: ")",
     checked: (n) => n + many(n, " claim checked", " claims checked"),
     clipboardEmpty: "The clipboard is empty.",
@@ -30,7 +30,7 @@ export const WORDS = {
   },
   fr: {
     PROVEN: "VU", NOT_PROVEN: "REFUSÉ", CONTRADICTED: "CONTREDIT", COULD_NOT_CHECK: "PAS PU VOIR", NOTHING_CLAIMED: "RIEN D'AFFIRMÉ",
-    kind: { FILE_REFERENCED: "fichier cité", FILE_WRITTEN: "fichier écrit", COMMITTED: "enregistré (commit)", PUSHED: "envoyé (push)", PR_MERGED: "demande fusionnée", PR_OPENED: "demande ouverte", TESTS_PASS: "tests réussis", COMMENT_POSTED: "commentaire publié", REPO_CREATED: "dépôt créé", MEASURED: "mesure annoncée", VAGUE_DONE: "« c'est fait », sans détail" },
+    kind: { DEPLOYED: "déployé", FILE_REFERENCED: "fichier cité", FILE_WRITTEN: "fichier écrit", COMMITTED: "enregistré (commit)", PUSHED: "envoyé (push)", PR_MERGED: "demande fusionnée", PR_OPENED: "demande ouverte", TESTS_PASS: "tests réussis", COMMENT_POSTED: "commentaire publié", REPO_CREATED: "dépôt créé", MEASURED: "mesure annoncée", VAGUE_DONE: "« c'est fait », sans détail" },
     not: "n'a PAS : ", none: "Aucune affirmation vérifiable dans ce message.", head: "SkeptOpus", sep: " : ", open: " (", close: ")",
     checked: (n) => n + many(n, " affirmation vérifiée", " affirmations vérifiées"),
     clipboardEmpty: "Le presse-papiers est vide.",
@@ -39,7 +39,7 @@ export const WORDS = {
   },
   es: {
     PROVEN: "VISTO", NOT_PROVEN: "NO CONSTA", CONTRADICTED: "DESMENTIDO", COULD_NOT_CHECK: "NO SE PUDO VER", NOTHING_CLAIMED: "NADA QUE COMPROBAR",
-    kind: { FILE_REFERENCED: "archivo citado", FILE_WRITTEN: "archivo escrito", COMMITTED: "commit hecho", PUSHED: "push hecho", PR_MERGED: "pull request fusionada", PR_OPENED: "pull request abierta", TESTS_PASS: "tests en verde", COMMENT_POSTED: "comentario publicado", REPO_CREATED: "repositorio creado", MEASURED: "medición anunciada", VAGUE_DONE: "«hecho», sin más detalle" },
+    kind: { DEPLOYED: "desplegado", FILE_REFERENCED: "archivo citado", FILE_WRITTEN: "archivo escrito", COMMITTED: "commit hecho", PUSHED: "push hecho", PR_MERGED: "pull request fusionada", PR_OPENED: "pull request abierta", TESTS_PASS: "tests en verde", COMMENT_POSTED: "comentario publicado", REPO_CREATED: "repositorio creado", MEASURED: "medición anunciada", VAGUE_DONE: "«hecho», sin más detalle" },
     not: "NO: ", none: "En este mensaje no hay nada que comprobar.", head: "SkeptOpus", sep: ": ", open: " (", close: ")",
     checked: (n) => n + many(n, " afirmación comprobada", " afirmaciones comprobadas"),
     clipboardEmpty: "El portapapeles está vacío.",
@@ -48,7 +48,7 @@ export const WORDS = {
   },
   zh: {
     PROVEN: "属实", NOT_PROVEN: "查无实据", CONTRADICTED: "不属实", COULD_NOT_CHECK: "无法核实", NOTHING_CLAIMED: "无可核实",
-    kind: { FILE_REFERENCED: "提到的文件", FILE_WRITTEN: "写入的文件", COMMITTED: "已提交 (commit)", PUSHED: "已推送 (push)", PR_MERGED: "PR 已合并", PR_OPENED: "PR 已创建", TESTS_PASS: "测试通过", COMMENT_POSTED: "评论已发布", REPO_CREATED: "仓库已创建", MEASURED: "声称的检测结果", VAGUE_DONE: "只说“搞定了”，没有细节" },
+    kind: { DEPLOYED: "已部署", FILE_REFERENCED: "提到的文件", FILE_WRITTEN: "写入的文件", COMMITTED: "已提交 (commit)", PUSHED: "已推送 (push)", PR_MERGED: "PR 已合并", PR_OPENED: "PR 已创建", TESTS_PASS: "测试通过", COMMENT_POSTED: "评论已发布", REPO_CREATED: "仓库已创建", MEASURED: "声称的检测结果", VAGUE_DONE: "只说“搞定了”，没有细节" },
     not: "没有：", none: "这条消息里没有可核实的说法。", head: "SkeptOpus", sep: "：", open: "（", close: "）",
     checked: (n) => "核实了 " + n + " 条说法",
     clipboardEmpty: "剪贴板是空的。",
@@ -57,7 +57,7 @@ export const WORDS = {
   },
   ar: {
     PROVEN: "مؤكَّد", NOT_PROVEN: "لا أثر له", CONTRADICTED: "خلاف الواقع", COULD_NOT_CHECK: "تعذّر التحقق", NOTHING_CLAIMED: "لا شيء للتحقق",
-    kind: { FILE_REFERENCED: "ملف مذكور", FILE_WRITTEN: "ملف مكتوب", COMMITTED: "تمّ الـ commit", PUSHED: "تمّ الـ push", PR_MERGED: "دُمج الـ PR", PR_OPENED: "فُتح الـ PR", TESTS_PASS: "الاختبارات ناجحة", COMMENT_POSTED: "تعليق منشور", REPO_CREATED: "مستودع مُنشأ", MEASURED: "قياس مُعلَن", VAGUE_DONE: "«تمّ»، بلا تفاصيل" },
+    kind: { DEPLOYED: "تمّ النشر", FILE_REFERENCED: "ملف مذكور", FILE_WRITTEN: "ملف مكتوب", COMMITTED: "تمّ الـ commit", PUSHED: "تمّ الـ push", PR_MERGED: "دُمج الـ PR", PR_OPENED: "فُتح الـ PR", TESTS_PASS: "الاختبارات ناجحة", COMMENT_POSTED: "تعليق منشور", REPO_CREATED: "مستودع مُنشأ", MEASURED: "قياس مُعلَن", VAGUE_DONE: "«تمّ»، بلا تفاصيل" },
     not: "ينفي: ", none: "لا يوجد في هذه الرسالة ما يمكن التحقق منه.", head: "SkeptOpus", sep: ": ", open: " (", close: ")",
     // Arabic counts: one, two, a few (3 to 10), many (11 and more) each take their own form.
     checked: (n) => "تمّ التحقق من " + (n === 1 ? "ادّعاء واحد" : n === 2 ? "ادّعاءين" : n <= 10 ? n + " ادّعاءات" : n + " ادّعاءً"),
@@ -88,6 +88,8 @@ export const WHY = {
     MEASURE_STARTED_IN_BACKGROUND: "long measurement started in the background: the result will land in the journal", MEASURE_COULD_NOT_RUN: "the measurement couldn't run (server stopped, for instance)",
     MEASURED_AGAIN_OK: "measured again just now: it holds", MEASURED_AGAIN_FAILED: "measured again just now: it doesn't hold",
     NOTHING_CHECKABLE_WAS_CLAIMED: "nothing checkable is claimed", NO_OBSERVER_FOR_THIS_CLAIM: "SkeptOpus can't check this yet", OBSERVER_CRASHED: "SkeptOpus crashed while looking",
+    VAGUE_DONE_REFUSED: "a “done” that names nothing is refused (strict profile)", TESTS_PASSED_ONLY_ON_SECOND_RUN: "they pass only on the second run: in strict mode, unstable is not proof", FILE_AGE_UNKNOWN: "the file is there, but nothing says it was written now (strict profile)",
+    PAGE_ANSWERS: "the page answers", PAGE_NOT_FOUND: "the page doesn't exist (not found)", PAGE_FAILS: "the page answers with a server error", PAGE_NEEDS_A_LOGIN: "the page asks for a login, so it couldn't look", PAGE_ANSWERS_OTHERWISE: "the page answers in a way that proves nothing", SITE_UNREACHABLE: "the site can't be reached", WEB_CHECKS_TURNED_OFF: "you turned web checks off", NO_WAY_TO_ASK_THE_WEB: "this Node.js can't ask the web",
     INDEED_NOT: "indeed, it isn't done", IT_HAPPENED_ANYWAY: "and yet it is done",
   },
   fr: {
@@ -109,6 +111,8 @@ export const WHY = {
     MEASURE_STARTED_IN_BACKGROUND: "mesure longue lancée en arrière-plan : le résultat arrivera dans le journal", MEASURE_COULD_NOT_RUN: "la mesure n'a pas pu se faire (serveur arrêté, par exemple)",
     MEASURED_AGAIN_OK: "mesuré de nouveau à l'instant : c'est bon", MEASURED_AGAIN_FAILED: "mesuré de nouveau à l'instant : ce n'est pas bon",
     NOTHING_CHECKABLE_WAS_CLAIMED: "rien de vérifiable n'est affirmé", NO_OBSERVER_FOR_THIS_CLAIM: "SkeptOpus ne sait pas encore vérifier ça", OBSERVER_CRASHED: "SkeptOpus a planté en regardant",
+    VAGUE_DONE_REFUSED: "un « c'est fait » qui ne nomme rien est refusé (profil strict)", TESTS_PASSED_ONLY_ON_SECOND_RUN: "ils ne passent qu'au second essai : en mode strict, instable n'est pas une preuve", FILE_AGE_UNKNOWN: "le fichier est là, mais rien ne dit qu'il vient d'être écrit (profil strict)",
+    PAGE_ANSWERS: "la page répond", PAGE_NOT_FOUND: "la page n'existe pas (introuvable)", PAGE_FAILS: "la page répond par une erreur du serveur", PAGE_NEEDS_A_LOGIN: "la page demande une connexion : pas pu regarder", PAGE_ANSWERS_OTHERWISE: "la page répond d'une façon qui ne prouve rien", SITE_UNREACHABLE: "le site est injoignable", WEB_CHECKS_TURNED_OFF: "vous avez coupé les vérifications sur le web", NO_WAY_TO_ASK_THE_WEB: "ce Node.js ne sait pas interroger le web",
     INDEED_NOT: "en effet, ce n'est pas fait", IT_HAPPENED_ANYWAY: "pourtant, c'est fait",
   },
   es: {
@@ -130,6 +134,8 @@ export const WHY = {
     MEASURE_STARTED_IN_BACKGROUND: "medición larga lanzada en segundo plano: el resultado llegará al diario", MEASURE_COULD_NOT_RUN: "no se pudo medir (servidor parado, por ejemplo)",
     MEASURED_AGAIN_OK: "medido de nuevo ahora mismo: se cumple", MEASURED_AGAIN_FAILED: "medido de nuevo ahora mismo: no se cumple",
     NOTHING_CHECKABLE_WAS_CLAIMED: "no afirma nada que se pueda comprobar", NO_OBSERVER_FOR_THIS_CLAIM: "SkeptOpus aún no sabe comprobar esto", OBSERVER_CRASHED: "SkeptOpus se cayó al mirar",
+    VAGUE_DONE_REFUSED: "un «hecho» que no nombra nada se rechaza (perfil estricto)", TESTS_PASSED_ONLY_ON_SECOND_RUN: "solo pasan a la segunda: en modo estricto, lo inestable no es prueba", FILE_AGE_UNKNOWN: "el archivo está ahí, pero nada dice que se acabe de escribir (perfil estricto)",
+    PAGE_ANSWERS: "la página responde", PAGE_NOT_FOUND: "la página no existe (no encontrada)", PAGE_FAILS: "la página responde con un error del servidor", PAGE_NEEDS_A_LOGIN: "la página pide iniciar sesión: no se pudo mirar", PAGE_ANSWERS_OTHERWISE: "la página responde de una forma que no prueba nada", SITE_UNREACHABLE: "no se puede llegar al sitio", WEB_CHECKS_TURNED_OFF: "desactivaste las comprobaciones web", NO_WAY_TO_ASK_THE_WEB: "este Node.js no puede consultar la web",
     INDEED_NOT: "en efecto, no está hecho", IT_HAPPENED_ANYWAY: "y sin embargo, está hecho",
   },
   zh: {
@@ -151,6 +157,8 @@ export const WHY = {
     MEASURE_STARTED_IN_BACKGROUND: "耗时的检测已在后台启动：结果会记到日志里", MEASURE_COULD_NOT_RUN: "检测没能进行（比如服务没启动）",
     MEASURED_AGAIN_OK: "刚又测了一遍：没问题", MEASURED_AGAIN_FAILED: "刚又测了一遍：不对",
     NOTHING_CHECKABLE_WAS_CLAIMED: "没有可核实的说法", NO_OBSERVER_FOR_THIS_CLAIM: "SkeptOpus 暂时还不会核实这个", OBSERVER_CRASHED: "SkeptOpus 查看时出错了",
+    VAGUE_DONE_REFUSED: "只说“搞定了”，却没说做了什么：严格模式下不予认可", TESTS_PASSED_ONLY_ON_SECOND_RUN: "第二遍才通过：严格模式下，不稳定不算证据", FILE_AGE_UNKNOWN: "文件在，但看不出是刚写的（严格模式）",
+    PAGE_ANSWERS: "页面能打开", PAGE_NOT_FOUND: "页面不存在（找不到）", PAGE_FAILS: "页面返回服务器错误", PAGE_NEEDS_A_LOGIN: "页面要求登录，没法查看", PAGE_ANSWERS_OTHERWISE: "页面的响应说明不了什么", SITE_UNREACHABLE: "网站连不上", WEB_CHECKS_TURNED_OFF: "你关掉了网页检查", NO_WAY_TO_ASK_THE_WEB: "这个 Node.js 没法访问网络",
     INDEED_NOT: "确实没做", IT_HAPPENED_ANYWAY: "可实际上已经做了",
   },
   ar: {
@@ -172,6 +180,8 @@ export const WHY = {
     MEASURE_STARTED_IN_BACKGROUND: "قياس طويل بدأ في الخلفية: ستظهر نتيجته في السجل", MEASURE_COULD_NOT_RUN: "تعذّر إجراء القياس (الخادم متوقف مثلًا)",
     MEASURED_AGAIN_OK: "أُعيد القياس الآن: النتيجة سليمة", MEASURED_AGAIN_FAILED: "أُعيد القياس الآن: النتيجة غير سليمة",
     NOTHING_CHECKABLE_WAS_CLAIMED: "لا ادّعاء يمكن التحقق منه", NO_OBSERVER_FOR_THIS_CLAIM: "SkeptOpus لا يعرف بعدُ كيف يتحقق من هذا", OBSERVER_CRASHED: "تعطّل SkeptOpus أثناء الفحص",
+    VAGUE_DONE_REFUSED: "«تمّ» التي لا تسمّي شيئًا مرفوضة (الوضع الصارم)", TESTS_PASSED_ONLY_ON_SECOND_RUN: "لا تنجح إلا في المرة الثانية: في الوضع الصارم، غير المستقر ليس دليلًا", FILE_AGE_UNKNOWN: "الملف موجود، لكن لا شيء يدل على أنه كُتب الآن (الوضع الصارم)",
+    PAGE_ANSWERS: "الصفحة تستجيب", PAGE_NOT_FOUND: "الصفحة غير موجودة", PAGE_FAILS: "الصفحة تردّ بخطأ في الخادم", PAGE_NEEDS_A_LOGIN: "الصفحة تطلب تسجيل الدخول: تعذّر الفحص", PAGE_ANSWERS_OTHERWISE: "الصفحة تردّ بطريقة لا تثبت شيئًا", SITE_UNREACHABLE: "تعذّر الوصول إلى الموقع", WEB_CHECKS_TURNED_OFF: "أوقفتَ فحوص الويب", NO_WAY_TO_ASK_THE_WEB: "نسخة Node.js هذه لا تستطيع الاتصال بالويب",
     INDEED_NOT: "فعلًا، لم يحصل", IT_HAPPENED_ANYWAY: "ومع ذلك فقد حصل",
   },
 };
@@ -189,6 +199,7 @@ export function say(lang, why) {
 export const PAGE = {
   en: {
     over: "Journal", slogan: "Done? Show me.",
+    since: { CHANGED: "changed since", GONE: "gone since" },
     moodNone: "Nothing to check so far today.",
     moodCalm: (n) => `Today: ${n} ${many(n, "thing", "things")} seen, nothing to report.`,
     moodBlind: (b, s) => `Today: ${b} ${many(b, "thing", "things")} it couldn't look at` + (s ? `, ${s} seen` : "") + ".",
@@ -219,6 +230,7 @@ export const PAGE = {
   },
   fr: {
     over: "Journal", slogan: "C'est fait ? Fais voir.",
+    since: { CHANGED: "modifié depuis", GONE: "disparu depuis" },
     moodNone: "Rien à vérifier aujourd'hui pour l'instant.",
     moodCalm: (n) => `Aujourd'hui : ${n} ${many(n, "chose vue", "choses vues")}, rien à signaler.`,
     moodBlind: (b, s) => `Aujourd'hui : ${b} ${many(b, "chose", "choses")} qu'il n'a pas pu voir` + (s ? `, ${s} ${many(s, "vue", "vues")}` : "") + ".",
@@ -249,6 +261,7 @@ export const PAGE = {
   },
   es: {
     over: "Diario", slogan: "¿Hecho? A ver.",
+    since: { CHANGED: "cambiado desde entonces", GONE: "desaparecido desde entonces" },
     moodNone: "Hoy, de momento, nada que comprobar.",
     moodCalm: (n) => `Hoy: ${n} ${many(n, "cosa vista", "cosas vistas")}, sin novedad.`,
     moodBlind: (b, s) => `Hoy: ${b} ${many(b, "cosa", "cosas")} que no pudo mirar` + (s ? `, ${s} ${many(s, "vista", "vistas")}` : "") + ".",
@@ -279,6 +292,7 @@ export const PAGE = {
   },
   zh: {
     over: "日志", slogan: "搞定了？给我看看。",
+    since: { CHANGED: "之后被改过", GONE: "之后不见了" },
     moodNone: "今天暂时还没有要核实的。",
     moodCalm: (n) => `今天核实了 ${n} 项，一切正常。`,
     moodBlind: (b, s) => `今天：${b} 项无法核实` + (s ? `，${s} 项属实` : "") + "。",
@@ -309,6 +323,7 @@ export const PAGE = {
   },
   ar: {
     over: "السجل", slogan: "خلاص؟ ورّيني.",
+    since: { CHANGED: "تغيّر منذ ذلك الحين", GONE: "اختفى منذ ذلك الحين" },
     moodNone: "لا شيء للتحقق منه اليوم حتى الآن.",
     moodCalm: (n) => `اليوم: عدد ما تأكّد ${n}، ولا شيء يُذكر.`,
     moodBlind: (b, s) => `اليوم: تعذّر التحقق: ${b}` + (s ? `، مؤكَّد: ${s}` : "") + ".",

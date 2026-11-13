@@ -11,13 +11,14 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { appendFileSync, copyFileSync, createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, win32 } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createInterface } from "node:readline";
 
 import { extractClaims } from "./claims.mjs";
 import { DIR, LANGS, LANG_LABEL, LOCALE, PAGE, WORDS, pickLang, say, sourceLabel } from "./words.mjs";
-import { VERDICT, homeOf, loadConfig, observe, overall, rootsOf } from "./observe.mjs";
+import { PROFILES, VERDICT, homeOf, loadConfig, observe, overall, profileOf, rootsOf } from "./observe.mjs";
+import { serve } from "./mcp.mjs";
 
 const COLOR = { PROVEN: 32, NOT_PROVEN: 33, CONTRADICTED: 31, COULD_NOT_CHECK: 33, NOTHING_CLAIMED: 90 };
 const paint = (verdict, text, on) => (on ? "\u001b[1;" + COLOR[verdict] + "m" + text + "\u001b[0m" : text);
@@ -37,12 +38,14 @@ export function render(report, lang = "en", color = false) {
   if (!report.rows.length) lines.push("  " + w.none);
   for (const row of report.rows) {
     const what = (row.claim.negated ? w.not : "") + w.kind[row.claim.kind] + (target(row.claim) ? " " + target(row.claim) : "");
-    lines.push("  " + paint(row.verdict, ("[" + w[row.verdict] + "]").padEnd(15), color) + what + w.sep + say(lang, row.why) + (row.facts?.check ? w.open + row.facts.check + w.close : ""));
+    const label = "[" + w[row.verdict] + "]";
+    // The longest label still keeps a space before the claim ("[COULDN'T LOOK]" is fifteen characters).
+    lines.push("  " + paint(row.verdict, label.padEnd(15) + (label.length >= 15 ? " " : ""), color) + what + w.sep + say(lang, row.why) + (row.facts?.check ? w.open + row.facts.check + w.close : ""));
   }
   return lines.join("\n");
 }
 
-const SWITCHES = new Set(["--json", "--dry-run", "--no-shortcut", "--open", "--print", "--embedded"]);
+const SWITCHES = new Set(["--json", "--dry-run", "--no-shortcut", "--open", "--print", "--embedded", "--apply"]);
 function parse(argv) {
   const o = { also: [], _: [] };
   for (let i = 0; i < argv.length; i++) {
@@ -95,6 +98,47 @@ export function summary(report, lang = "en") {
 }
 const exitOf = { PROVEN: 0, NOTHING_CLAIMED: 0, NOT_PROVEN: 1, CONTRADICTED: 2, COULD_NOT_CHECK: 3 };
 
+// ---------- the same answer for a continuous-integration run ----------
+const xml = (s) => String(s ?? "").replace(/[<>&"']/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&apos;" })[c]).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, " ");
+const cell = (s) => String(s ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+const MARK = { PROVEN: "✅", NOT_PROVEN: "🟠", CONTRADICTED: "🔴", COULD_NOT_CHECK: "⚪", NOTHING_CLAIMED: "⚪" };
+/** A table for a run's summary page (GitHub's job summary reads Markdown). */
+export function asMarkdown(report, lang = "en") {
+  const w = WORDS[pickLang(lang)];
+  const lines = ["### SkeptOpus " + MARK[report.verdict] + " " + w[report.verdict], ""];
+  if (!report.rows.length) return [...lines, w.none].join("\n");
+  lines.push("| | Claim | What SkeptOpus saw |", "| --- | --- | --- |");
+  for (const r of report.rows) {
+    const what = (r.claim.negated ? w.not : "") + (w.kind[r.claim.kind] ?? r.claim.kind) + (target(r.claim) ? " `" + String(target(r.claim)).replace(/`/g, "'") + "`" : "");
+    lines.push("| " + MARK[r.verdict] + " " + w[r.verdict] + " | " + cell(what) + " | " + cell(say(lang, r.why) + (r.facts?.check ? " (" + r.facts.check + ")" : "")) + " |");
+  }
+  return lines.join("\n");
+}
+/**
+ * JUnit XML, which every CI dashboard reads: one test case per claim. Not found and contradicted are failures,
+ * could not look is skipped (it says nothing either way), seen passes.
+ */
+export function asJunit(report, lang = "en") {
+  const w = WORDS[pickLang(lang)];
+  const failures = report.rows.filter((r) => r.verdict === "NOT_PROVEN" || r.verdict === "CONTRADICTED").length;
+  const skipped = report.rows.filter((r) => r.verdict === "COULD_NOT_CHECK").length;
+  const cases = report.rows.map((r) => {
+    const name = (r.claim.negated ? w.not : "") + (w.kind[r.claim.kind] ?? r.claim.kind) + (target(r.claim) ? " " + target(r.claim) : "");
+    const why = say(lang, r.why) + (r.facts?.check ? " (" + r.facts.check + ")" : "");
+    const inner = r.verdict === "NOT_PROVEN" || r.verdict === "CONTRADICTED" ? `<failure type="${r.verdict}" message="${xml(why)}"/>` : r.verdict === "COULD_NOT_CHECK" ? `<skipped message="${xml(why)}"/>` : "";
+    return `    <testcase classname="skeptopus.${r.claim.kind}" name="${xml(name)}">${inner}</testcase>`;
+  });
+  return ['<?xml version="1.0" encoding="UTF-8"?>', `<testsuites name="SkeptOpus" tests="${report.rows.length}" failures="${failures}" skipped="${skipped}">`, `  <testsuite name="SkeptOpus" tests="${report.rows.length}" failures="${failures}" skipped="${skipped}">`, ...cases, "  </testsuite>", "</testsuites>"].join("\n");
+}
+/** What makes a run fail, when the caller says so: only a contradiction, any claim not seen to be true, or never. */
+export function failsOn(verdict, rule) {
+  if (rule === "never") return false;
+  if (rule === "problems") return verdict === "CONTRADICTED" || verdict === "NOT_PROVEN";
+  if (rule === "anything") return verdict === "CONTRADICTED" || verdict === "NOT_PROVEN" || verdict === "COULD_NOT_CHECK";
+  return verdict === "CONTRADICTED";
+}
+const FAIL_RULES = ["contradicted", "problems", "anything", "never"];
+
 async function main() {
   const [mode, ...rest] = process.argv.slice(2);
   const o = parse(rest);
@@ -105,7 +149,22 @@ async function main() {
     const cwd = o.cwd ?? process.cwd();
     const config = loadConfig(o.config, cwd);
     const report = await check(message, { roots: rootsOf(cwd, config, o.also), sessionStart: o.since, config, allowSlow: true });
-    console.log(o.json ? JSON.stringify(report, null, 2) : render(report, langFor(config), process.stdout.isTTY));
+    const format = o.json ? "json" : o.format ?? "text";
+    const lang = langFor(config);
+    const shown = { json: () => JSON.stringify(report, null, 2), md: () => asMarkdown(report, lang), junit: () => asJunit(report, lang) }[format]?.() ?? render(report, lang, process.stdout.isTTY);
+    // A report asked for in a file (a CI run keeps it as an artifact) leaves the console with the short line.
+    if (o.output) {
+      writeFileSync(o.output, shown + "\n");
+      console.log(summary(report, lang));
+    } else console.log(shown);
+    // --fail-on decides the exit code for a run that must pass or fail; without it, one code per answer.
+    if (o["fail-on"] !== undefined) {
+      if (!FAIL_RULES.includes(o["fail-on"])) {
+        console.error("skeptopus: --fail-on takes " + FAIL_RULES.join(", "));
+        process.exit(64);
+      }
+      process.exit(failsOn(report.verdict, o["fail-on"]) ? 1 : 0);
+    }
     process.exit(exitOf[report.verdict]);
   }
   if (mode === "transcript") {
@@ -152,7 +211,9 @@ async function main() {
         }
         // Quiet when everything was seen: one line. Detailed only when something needs the human's eye.
         const lang = langFor(config);
-        const text = report.verdict === "PROVEN" ? summary(report, lang) : render(report, lang, false);
+        // The calm profile details only what is false; the others detail anything that is not seen.
+        const detailed = profileOf(config) === "calm" ? report.verdict === "CONTRADICTED" : report.verdict !== "PROVEN";
+        const text = detailed ? render(report, lang, false) : summary(report, lang);
         const out = o.out ?? "claude";
         if (out === "claude") console.log(JSON.stringify({ systemMessage: text }));
         else if (out === "text") console.log(text);
@@ -234,6 +295,25 @@ async function main() {
     console.log(page);
     // No desktop to open it with (a server, a Linux without one): the path is printed above; say what to do with it.
     if (rest.includes("--open") && !(await openPage(page))) console.log(WORDS[langFor(loadConfig(o.config, process.cwd()))].noOpener(page));
+    return;
+  }
+  if (mode === "init") {
+    // Finds how this folder runs its tests, from its own files, and runs nothing. --apply keeps it in the user's settings.
+    const cwd = resolve(o.cwd ?? process.cwd());
+    const got = initProject(cwd, { apply: Boolean(o.apply), profile: o.profile });
+    console.log(o.json ? JSON.stringify(got, null, 2) : tellInit(got, langFor(loadConfig(undefined, cwd))));
+    process.exit(got.ok ? 0 : 1);
+  }
+  if (mode === "config") {
+    // The settings in effect for a folder, where each comes from, and what is not understood.
+    const cwd = resolve(o.cwd ?? process.cwd());
+    const got = settingsReport(cwd);
+    console.log(o.json ? JSON.stringify(got, null, 2) : tellSettings(got, langFor(got.config)));
+    return;
+  }
+  if (mode === "mcp") {
+    // The AI asks SkeptOpus itself, before it tells the human "done". Spoken on stdin and stdout until the tool closes it.
+    await serve(mcpEngine(process.cwd()));
     return;
   }
   if (mode === "replay") {
@@ -359,7 +439,11 @@ export function clipboard(candidates = pasters()) {
 // A sound of SkeptOpus's own for each answer (core/sounds, written by scripts/skeptopus-make-sounds.mjs), and on
 // Windows a small window. Each follows its own setting: "always", "problems" (anything but "seen") or "never".
 // The sound follows the window's setting until the user says otherwise ("sound" in config.json).
-const wanted = (wish, verdict, whatever) => wish === "always" || (wish === "problems" && (whatever || verdict !== "PROVEN"));
+// "contradicted" lets through only the answer that says something is false: the calm profile's default.
+const wanted = (wish, verdict, whatever) => wish === "always" || (wish === "problems" && (whatever || verdict !== "PROVEN")) || (wish === "contradicted" && verdict === "CONTRADICTED");
+// A profile chosen by the user sets what reaches them, unless they set it themselves. No profile: as before.
+const PROFILE_NOTIFY = { calm: "contradicted", normal: "problems", strict: "problems" };
+const notifyOf = (config) => config?.notify ?? (PROFILES.includes(config?.profile) ? PROFILE_NOTIFY[config.profile] : "never");
 /**
  * What will be played and shown for this answer, decided from the settings alone: no sound is started here.
  * `whatever` is for an answer the human is waiting for (a long measurement that comes back): "problems" then
@@ -368,8 +452,8 @@ const wanted = (wish, verdict, whatever) => wish === "always" || (wish === "prob
 export function signalPlan(report, config = {}, { whatever = false, platform = process.platform, sounds = join(dirname(SELF), "sounds") } = {}) {
   const file = join(sounds, String(report.verdict).toLowerCase() + ".wav");
   return {
-    window: platform === "win32" && wanted(config?.notify ?? "never", report.verdict, whatever),
-    sound: wanted(config?.sound ?? config?.notify ?? "never", report.verdict, whatever) && existsSync(file) ? file : null,
+    window: platform === "win32" && wanted(notifyOf(config), report.verdict, whatever),
+    sound: wanted(config?.sound ?? notifyOf(config), report.verdict, whatever) && existsSync(file) ? file : null,
   };
 }
 function signal(report, lang, config, options = {}) {
@@ -571,8 +655,331 @@ export function detach(tool, { home = homedir(), dryRun = false } = {}) {
   return { ok: true, tool, file, removed, written: Boolean(removed) && !dryRun };
 }
 
+// ---------- the same engine as a tool the AI calls itself, before it says "done" (MCP) ----------
+// The trigger above checks what the AI said, after it said it. The server below lets the AI check before it speaks.
+const SERVER_NAME = "skeptopus";
+/**
+ * How a tool starts the server. No shell stands in between, so a full path is safe even with a space in it;
+ * a version manager's folder is not (it dies at the next upgrade), and neither is a program that only plays node.
+ */
+export function nodeForServers(execPath = process.execPath) {
+  const path = String(execPath).replace(/\\/g, "/");
+  const fragile = !path.includes("/") || /\/(\.?nvm|\.?fnm|fnm_multishells|\.volta|\.asdf|\.nodenv|\.n|nodebrew)\//i.test(path);
+  return fragile || !/\/node(\.exe)?$/i.test(path) ? "node" : path;
+}
+export const serverEntry = (engine = SELF, execPath = process.execPath) => ({ command: nodeForServers(execPath), args: [engine.replace(/\\/g, "/"), "mcp"] });
+// Where each tool reads the servers its user declared, as each vendor documents it (read 2026-11-13).
+// Claude Code keeps user-wide servers in ~/.claude.json; Codex in a TOML table; Cursor and Gemini CLI in JSON.
+const SERVERS = {
+  claude: { file: (home) => join(home, ".claude.json") },
+  codex: { file: (home) => join(home, ".codex", "config.toml"), toml: true },
+  cursor: { file: (home) => join(home, ".cursor", "mcp.json") },
+  gemini: { file: (home) => join(home, ".gemini", "settings.json") },
+};
+const tomlString = (s) => '"' + String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
+const TOML_TABLE = "mcp_servers." + SERVER_NAME;
+/** Takes SkeptOpus's own table (and its sub-tables) out of a TOML text, and nothing else. */
+export function stripTomlServer(raw) {
+  const out = [];
+  let skipping = false;
+  let removed = 0;
+  for (const line of String(raw).split(/\r?\n/)) {
+    const head = /^\s*\[\[?([^\]]+)\]\]?\s*(?:#.*)?$/.exec(line);
+    if (head) {
+      const name = head[1].replace(/\s+/g, "");
+      skipping = name === TOML_TABLE || name.startsWith(TOML_TABLE + ".");
+      if (name === TOML_TABLE) removed++;
+    }
+    if (!skipping) out.push(line);
+  }
+  while (out.length > 1 && out[out.length - 1] === "" && out[out.length - 2] === "") out.pop();
+  return { text: out.join("\n"), removed };
+}
+const tomlTable = (entry) =>
+  ["[" + TOML_TABLE + "]", "# Written by SkeptOpus; `skeptopus uninstall` takes it back out.", "command = " + tomlString(entry.command), "args = [" + entry.args.map(tomlString).join(", ") + "]", "tool_timeout_sec = 120", ""].join("\n");
+
+/** Declares the server to one tool. Like the trigger: the tool's other settings are kept, a backup is made once. */
+export function register(tool, { home = homedir(), dryRun = false, engine = SELF, execPath = process.execPath } = {}) {
+  const spec = SERVERS[tool];
+  if (!spec) return { ok: false, tool, reason: "UNKNOWN_TOOL" };
+  const file = spec.file(home);
+  const entry = serverEntry(engine, execPath);
+  const existed = existsSync(file);
+  let next;
+  let replaced = false;
+  if (spec.toml) {
+    const raw = existed ? readFileSync(file, "utf8") : "";
+    const { text: rest, removed } = stripTomlServer(raw);
+    replaced = removed > 0;
+    next = (rest.trim() ? rest.replace(/\s*$/, "\n\n") : "") + tomlTable(entry);
+  } else {
+    let state;
+    try {
+      state = readSettings(file);
+    } catch {
+      return { ok: false, tool, file, reason: "SETTINGS_FILE_UNREADABLE" };
+    }
+    if (state.cfg.mcpServers !== undefined && (typeof state.cfg.mcpServers !== "object" || Array.isArray(state.cfg.mcpServers) || state.cfg.mcpServers === null))
+      return { ok: false, tool, file, reason: "SETTINGS_FILE_UNREADABLE" };
+    state.cfg.mcpServers ??= {};
+    replaced = Boolean(state.cfg.mcpServers[SERVER_NAME]);
+    state.cfg.mcpServers[SERVER_NAME] = { type: "stdio", ...entry };
+    if (tool !== "claude") delete state.cfg.mcpServers[SERVER_NAME].type; // only Claude Code documents the field
+    next = JSON.stringify(state.cfg, null, 2) + "\n";
+  }
+  const result = { ok: true, tool, file, entry, replaced, written: false, backup: null };
+  if (dryRun) return result;
+  mkdirSync(dirname(file), { recursive: true });
+  if (existed) {
+    result.backup = file + ".avant-skeptopus";
+    if (!existsSync(result.backup)) copyFileSync(file, result.backup);
+  }
+  writeFileSync(file, next);
+  result.written = true;
+  return result;
+}
+export function unregister(tool, { home = homedir(), dryRun = false } = {}) {
+  const spec = SERVERS[tool];
+  if (!spec) return { ok: false, tool, reason: "UNKNOWN_TOOL" };
+  const file = spec.file(home);
+  if (!existsSync(file)) return { ok: true, tool, file, removed: 0, written: false };
+  let next;
+  let removed = 0;
+  if (spec.toml) {
+    const got = stripTomlServer(readFileSync(file, "utf8"));
+    removed = got.removed;
+    next = got.text.replace(/\s*$/, "\n");
+  } else {
+    let state;
+    try {
+      state = readSettings(file);
+    } catch {
+      return { ok: false, tool, file, reason: "SETTINGS_FILE_UNREADABLE" };
+    }
+    const servers = state.cfg.mcpServers;
+    if (servers && typeof servers === "object" && servers[SERVER_NAME]) {
+      delete servers[SERVER_NAME];
+      removed = 1;
+      if (!Object.keys(servers).length) delete state.cfg.mcpServers; // no empty list left behind
+    }
+    next = JSON.stringify(state.cfg, null, 2) + "\n";
+  }
+  if (removed && !dryRun) writeFileSync(file, next);
+  return { ok: true, tool, file, removed, written: Boolean(removed) && !dryRun };
+}
+/** Read from the file, never from memory: a tool may rewrite its settings while it runs. */
+export function registered(tool, home = homedir()) {
+  const spec = SERVERS[tool];
+  const file = spec?.file(home);
+  if (!file || !existsSync(file)) return false;
+  try {
+    if (spec.toml) return stripTomlServer(readFileSync(file, "utf8")).removed > 0;
+    return Boolean(readSettings(file).cfg?.mcpServers?.[SERVER_NAME]);
+  } catch {
+    return false;
+  }
+}
+
+// ---------- settings: found for a folder, kept by the user, explained ----------
+/**
+ * How a folder runs its tests, read from its own files. Nothing is run, and nothing a project wrote is trusted
+ * blindly: the result is shown to the user, who keeps it or not.
+ */
+export function detectTests(dir, { platform = process.platform, execPath = process.execPath, has = existsSync } = {}) {
+  const at = (f) => join(dir, f);
+  const read = (f) => {
+    try {
+      return readFileSync(at(f), "utf8");
+    } catch {
+      return null;
+    }
+  };
+  let pkg = null;
+  try {
+    pkg = JSON.parse(read("package.json") ?? "null");
+  } catch {
+    pkg = null;
+  }
+  const script = pkg?.scripts?.test;
+  if (typeof script === "string" && script.trim() && !/no test specified/i.test(script)) {
+    const runner = has(at("pnpm-lock.yaml")) ? "pnpm" : has(at("yarn.lock")) ? "yarn" : has(at("bun.lockb")) || has(at("bun.lock")) ? "bun" : "npm";
+    if (runner === "bun") return { test: ["bun", "run", "test"], from: "package.json", runner, script };
+    if (platform !== "win32") return { test: [runner, "test"], from: "package.json", runner, script };
+    // On Windows npm, pnpm and yarn are command scripts, which cannot be started without a shell, and SkeptOpus never
+    // uses one. npm's own entry point ships with node: it is run by node itself.
+    // A Windows path is read with Windows's rules, whatever system reads it (found on 2026-11-13 under Linux).
+    const npmCli = win32.join(win32.dirname(execPath), "node_modules", "npm", "bin", "npm-cli.js");
+    if (runner === "npm" && has(npmCli)) return { test: [execPath.replace(/\\/g, "/"), npmCli.replace(/\\/g, "/"), "test"], from: "package.json", runner, script };
+    return { test: null, from: "package.json", runner, script, note: "NEEDS_A_SHELL_ON_WINDOWS" };
+  }
+  if (has(at("Cargo.toml"))) return { test: ["cargo", "test"], from: "Cargo.toml", runner: "cargo" };
+  if (has(at("go.mod"))) return { test: ["go", "test", "./..."], from: "go.mod", runner: "go" };
+  if (has(at("deno.json")) || has(at("deno.jsonc"))) return { test: ["deno", "test"], from: has(at("deno.json")) ? "deno.json" : "deno.jsonc", runner: "deno" };
+  const pyproject = read("pyproject.toml");
+  if (has(at("pytest.ini")) || has(at("conftest.py")) || /\[tool\.pytest/.test(pyproject ?? ""))
+    return { test: [platform === "win32" ? "python" : "python3", "-m", "pytest", "-q"], from: has(at("pytest.ini")) ? "pytest.ini" : has(at("conftest.py")) ? "conftest.py" : "pyproject.toml", runner: "pytest" };
+  if (/^test\s*:/m.test(read("Makefile") ?? "")) return { test: ["make", "test"], from: "Makefile", runner: "make" };
+  return { test: null, from: null, runner: null };
+}
+
+/** Finds the test command of a folder and, on --apply, keeps it under "projects" in the user's own settings. */
+export function initProject(cwd, { apply = false, profile, env = process.env, home } = {}) {
+  const base = home ?? homeOf(env);
+  const file = join(base, "config.json");
+  const found = detectTests(cwd);
+  const result = { ok: true, folder: cwd, file, ...found, profile: profile ?? null, applied: false };
+  if (profile !== undefined && !PROFILES.includes(profile)) return { ...result, ok: false, reason: "UNKNOWN_PROFILE", known: PROFILES };
+  if (!apply) return result;
+  if (!found.test && !profile) return { ...result, ok: false, reason: "NOTHING_TO_KEEP" };
+  let cfg = {};
+  if (existsSync(file)) {
+    try {
+      cfg = JSON.parse(readFileSync(file, "utf8"));
+      if (!cfg || typeof cfg !== "object" || Array.isArray(cfg)) throw new Error("not an object");
+    } catch {
+      return { ...result, ok: false, reason: "SETTINGS_FILE_UNREADABLE" };
+    }
+  }
+  const key = cwd.replace(/\\/g, "/");
+  cfg.projects = cfg.projects && typeof cfg.projects === "object" && !Array.isArray(cfg.projects) ? cfg.projects : {};
+  const entry = { ...(cfg.projects[key] ?? {}) };
+  if (found.test) entry.test = found.test;
+  if (profile) entry.profile = profile;
+  cfg.projects[key] = entry;
+  mkdirSync(base, { recursive: true });
+  writeFileSync(file, JSON.stringify(cfg, null, 2) + "\n");
+  return { ...result, applied: true, entry };
+}
+
+const KNOWN_SETTINGS = new Set(["repos", "roots", "test", "testCwd", "testTimeoutMs", "checks", "trusted", "notify", "sound", "lang", "profile", "projects", "mcp", "cwd"]);
+/** The settings in effect for a folder, read from the files: what SkeptOpus will actually do there. */
+export function settingsReport(cwd, { env = process.env } = {}) {
+  const config = loadConfig(undefined, cwd, env) ?? {};
+  const unknown = new Set();
+  for (const source of config.sources ?? []) {
+    try {
+      const raw = JSON.parse(readFileSync(source, "utf8"));
+      for (const k of Object.keys(raw ?? {})) if (!KNOWN_SETTINGS.has(k)) unknown.add(k);
+      for (const entry of Object.values(raw?.projects ?? {})) for (const k of Object.keys(entry ?? {})) if (!KNOWN_SETTINGS.has(k)) unknown.add(k);
+    } catch {
+      // A file loadConfig could read is readable here too; one that changed in between is simply skipped.
+    }
+  }
+  const measures = (Array.isArray(config.checks) ? config.checks : []).filter((c) => c && typeof c.match === "string" && Array.isArray(c.run)).map((c) => c.name ?? c.match);
+  return {
+    folder: cwd,
+    profile: profileOf(config),
+    project: config.project ?? null,
+    test: Array.isArray(config.test) && config.test.length ? config.test : null,
+    measures,
+    repos: Array.isArray(config.repos) ? config.repos : [],
+    roots: rootsOf(cwd, config),
+    notify: notifyOf(config),
+    sound: config.sound ?? notifyOf(config),
+    lang: config.lang ?? null,
+    sources: config.sources ?? [],
+    unknown: [...unknown],
+    config,
+  };
+}
+
+const PROFILE_WORDS = {
+  fr: { calm: "calme (ne parle que si quelque chose est faux)", normal: "normal", strict: "strict (un « c'est fait » vague, des tests instables ou un fichier d'âge inconnu ne comptent plus comme vus)" },
+  en: { calm: "calm (speaks up only when something is false)", normal: "normal", strict: "strict (a vague \"done\", unstable tests or a file of unknown age no longer count as seen)" },
+};
+export function tellInit(r, lang = "fr") {
+  const fr = lang === "fr";
+  if (r.reason === "UNKNOWN_PROFILE") return fr ? `Profil inconnu. Au choix : ${r.known.join(", ")}.` : `Unknown profile. Choose one of: ${r.known.join(", ")}.`;
+  if (r.reason === "SETTINGS_FILE_UNREADABLE") return fr ? `Vos réglages (${r.file}) sont illisibles : rien n'a été touché.` : `Your settings (${r.file}) cannot be read: nothing was touched.`;
+  const lines = [fr ? `Dossier : ${r.folder}` : `Folder: ${r.folder}`];
+  if (r.test) lines.push(fr ? `Tests trouvés dans ${r.from} : ${r.test.join(" ")}` : `Tests found in ${r.from}: ${r.test.join(" ")}`);
+  else if (r.note) lines.push(fr ? `${r.from} déclare des tests (« ${r.script} »), mais ${r.runner} ne peut pas être lancé sans interpréteur de commandes sous Windows, et SkeptOpus n'en utilise jamais. Déclarez une commande qui démarre un programme, par exemple ["node", "--test"].` : `${r.from} declares tests ("${r.script}"), but ${r.runner} cannot be started without a shell on Windows, and SkeptOpus never uses one. Declare a command that starts a program, for instance ["node", "--test"].`);
+  else lines.push(fr ? "Aucune commande de tests trouvée dans ce dossier." : "No test command found in this folder.");
+  lines.push(fr ? "Rien n'a été lancé." : "Nothing was run.");
+  if (r.applied) lines.push(fr ? `Gardé dans vos réglages (${r.file}), pour ce dossier seulement.` : `Kept in your settings (${r.file}), for this folder only.`);
+  else if (r.reason === "NOTHING_TO_KEEP") lines.push(fr ? "Rien à garder." : "Nothing to keep.");
+  else if (r.test || r.profile) lines.push(fr ? "Pour le garder : skeptopus init --apply" + (r.profile ? " --profile " + r.profile : "") : "To keep it: skeptopus init --apply" + (r.profile ? " --profile " + r.profile : ""));
+  if (r.profile) lines.push(fr ? `Profil : ${PROFILE_WORDS.fr[r.profile]}` : `Profile: ${PROFILE_WORDS.en[r.profile]}`);
+  return lines.join("\n");
+}
+export function tellSettings(r, lang = "fr") {
+  const fr = lang === "fr";
+  const w = fr ? PROFILE_WORDS.fr : PROFILE_WORDS.en;
+  const notify = { always: fr ? "toujours" : "always", problems: fr ? "quand ce n'est pas vu" : "when not seen", contradicted: fr ? "seulement quand c'est faux" : "only when false", never: fr ? "jamais" : "never" };
+  const lines = [
+    fr ? `Réglages en vigueur pour ${r.folder}` : `Settings in effect for ${r.folder}`,
+    (fr ? "  Profil : " : "  Profile: ") + w[r.profile],
+    r.project ? (fr ? "  Réglages propres à ce projet : " : "  Settings of its own for this project: ") + r.project : fr ? "  Pas de réglages propres à ce projet (skeptopus init pour en créer)" : "  No settings of its own for this project (skeptopus init to make some)",
+    r.test ? (fr ? "  Tests relancés avec : " : "  Tests re-run with: ") + r.test.join(" ") : fr ? "  Tests : aucune commande déclarée, « les tests passent » restera « pas pu voir »" : '  Tests: no command declared, "tests pass" will stay "couldn\'t look"',
+    (fr ? "  Mesures déclarées : " : "  Declared measurements: ") + (r.measures.length ? r.measures.join(", ") : fr ? "aucune" : "none"),
+    (fr ? "  Dépôts interrogés en plus : " : "  Repositories also asked: ") + (r.repos.length ? r.repos.join(", ") : fr ? "aucun" : "none"),
+    (fr ? "  Fenêtre et son : " : "  Window and sound: ") + notify[r.notify] + " / " + (notify[r.sound] ?? r.sound),
+    (fr ? "  Lus dans : " : "  Read from: ") + (r.sources.length ? r.sources.join(", ") : fr ? "aucun fichier (valeurs par défaut)" : "no file (defaults)"),
+  ];
+  if (r.unknown.length) lines.push((fr ? "  Non compris, donc ignoré : " : "  Not understood, so ignored: ") + r.unknown.join(", "));
+  return lines.join("\n");
+}
+
+const ADVICE = {
+  PROVEN: "Everything you claim was seen. You can say it.",
+  NOTHING_CLAIMED: "No checkable claim of work done was found in this message.",
+  NOT_PROVEN: "Something you claim was not found. Do it, or tell the user it is not done.",
+  CONTRADICTED: "Something you claim is false right now. Fix it before you say it, or tell the user what is actually true.",
+  COULD_NOT_CHECK: "Some claims could not be checked here. Say they are not verified, or show the proof yourself.",
+};
+/** What the server needs from the engine. Kept here, so the protocol module never reaches into the engine itself. */
+export function mcpEngine(cwd = process.cwd(), { home = homeDir() } = {}) {
+  return {
+    version: VERSION,
+    langs: LANGS,
+    cwd,
+    async check(message, where, lang) {
+      const config = loadConfig(undefined, where) ?? {};
+      // A tool call has a clock: tests are given the time the user allows a call (50 s unless set), not five minutes.
+      const allowed = Number(config.mcp?.timeoutMs) > 0 ? Number(config.mcp.timeoutMs) : 50000;
+      const ctx = { roots: rootsOf(where, config), config: { ...config, testTimeoutMs: Math.min(Number(config.testTimeoutMs) || 300000, allowed) }, allowSlow: false };
+      const report = await check(message, ctx);
+      // Long measurements run on their own, as after a turn: their answer lands in the journal.
+      for (const sentence of [...new Set(ctx.deferred ?? [])]) {
+        spawn(process.execPath, [SELF, "later", "--cwd", where, "--from", "mcp", "--text", sentence], { detached: true, stdio: "ignore", windowsHide: true }).unref();
+      }
+      // An AI that checks itself before speaking has not misled anyone: kept out of the journal unless the user asks.
+      if (config.mcp?.journal === true && report.rows.length) {
+        try {
+          remember(report, { cwd: where, source: "mcp" });
+        } catch {
+          // The answer matters more than the journal.
+        }
+      }
+      const l = pickLang(lang ?? config.lang);
+      const claims = report.rows.map((r) => ({ kind: r.claim.kind, target: String(target(r.claim) ?? ""), negated: Boolean(r.claim.negated), verdict: r.verdict, why: r.why, explanation: say(l, r.why), ...(r.facts ? { facts: r.facts } : {}) }));
+      const advice = ADVICE[report.verdict];
+      return { text: render(report, l, false) + "\n\n" + advice, structured: { verdict: report.verdict, claims, advice } };
+    },
+    today() {
+      const g = glance(home);
+      const l = pickLang(g.lang ?? "en");
+      const structured = { checks: g.checks, seen: g.seen, notProven: g.refused, contradicted: g.against, couldNotCheck: g.blind, worst: g.worst, last: g.last };
+      return { text: g.texts[l].mood, structured };
+    },
+    capabilities(where) {
+      const config = loadConfig(undefined, where) ?? {};
+      const tests = Array.isArray(config.test) && config.test.length ? config.test.join(" ") : null;
+      const measures = (Array.isArray(config.checks) ? config.checks : []).filter((c) => c && typeof c.match === "string" && Array.isArray(c.run)).map((c) => c.name ?? c.match);
+      const repos = Array.isArray(config.repos) ? config.repos.filter((r) => typeof r === "string") : [];
+      const lines = [
+        "Always checked: commits (git), pushes (the remote), pull requests and merges, comments and repositories (GitHub CLI), files on disk.",
+        tests ? "Tests: re-run with the command the user declared: " + tests : "Tests: no test command declared, so \"tests pass\" comes back COULD_NOT_CHECK. The user declares it in " + join(home, "config.json") + ' as "test": ["npm", "test"].',
+        measures.length ? "Measurements redone on request: " + measures.join(", ") : "Measurements: none declared.",
+        repos.length ? "Repositories asked besides this folder's: " + repos.join(", ") : "Repositories: the ones this folder's git remotes name.",
+      ];
+      return { text: lines.join("\n"), structured: { testCommand: tests, measurements: measures, repositories: repos, folders: rootsOf(where, config), settings: config.sources ?? [] } };
+    },
+  };
+}
+
 // ---------- one command: install, status, uninstall ----------
-const ENGINE_FILES = ["cli.mjs", "claims.mjs", "observe.mjs", "words.mjs", "package.json"];
+const ENGINE_FILES = ["cli.mjs", "claims.mjs", "observe.mjs", "words.mjs", "mcp.mjs", "package.json"];
 const ENGINE_FOLDERS = ["art", "fonts", "sounds"];
 export const VERSION = (() => {
   try {
@@ -632,6 +1039,13 @@ export function install({ home = homedir(), env = process.env, dryRun = false, s
       report.tools.push({ tool, state: "FAILED", file: got.file, reason: got.reason });
       report.ok = false;
     }
+    // The same tool can also let its AI ask SkeptOpus before it speaks. "--skip mcp" leaves that out everywhere.
+    if (!skip.includes("mcp")) {
+      const server = register(tool, { home, dryRun, engine });
+      report.tools[report.tools.length - 1].mcp = server.ok ? (dryRun ? "WOULD_REGISTER" : "REGISTERED") : "FAILED";
+      report.tools[report.tools.length - 1].mcpFile = server.file;
+      if (!server.ok) report.ok = false;
+    }
   }
   // 4. Something to open: the journal page, and on Windows a shortcut on the Desktop.
   if (!dryRun) report.journal = writeJournal(base);
@@ -657,8 +1071,9 @@ export function uninstall({ home = homedir(), env = process.env, dryRun = false 
   const report = { ok: true, home: base, tools: [], shortcut: null, dryRun };
   for (const tool of Object.keys(PRESENT)) {
     const got = detach(tool, { home, dryRun });
-    report.tools.push({ tool, removed: got.removed ?? 0, file: got.file, ok: got.ok });
-    if (!got.ok) report.ok = false;
+    const server = unregister(tool, { home, dryRun });
+    report.tools.push({ tool, removed: got.removed ?? 0, mcpRemoved: server.removed ?? 0, file: got.file, ok: got.ok && server.ok });
+    if (!got.ok || !server.ok) report.ok = false;
   }
   for (const name of [SHORTCUT, SHORTCUT_CLIP]) {
     const link = join(home, "Desktop", name);
@@ -678,14 +1093,15 @@ export function status({ home = homedir(), env = process.env, cwd = process.cwd(
   };
   const tools = Object.entries(PRESENT).map(([tool, folder]) => {
     if (!existsSync(join(home, folder))) return { tool, state: "ABSENT" };
+    const mcp = registered(tool, home);
     try {
       const { cfg } = readSettings(TOOLS[tool].file(home));
-      if (TOOLS[tool].strip(JSON.parse(JSON.stringify(cfg))) > 0) return { tool, state: "ATTACHED" };
+      if (TOOLS[tool].strip(JSON.parse(JSON.stringify(cfg))) > 0) return { tool, state: "ATTACHED", mcp };
       // Claude Code also reads settings kept inside a project folder.
-      if (tool === "claude" && ["settings.local.json", "settings.json"].some((f) => existsSync(join(cwd, ".claude", f)) && hooked(join(cwd, ".claude", f)))) return { tool, state: "ATTACHED_HERE_ONLY", folder: cwd };
-      return { tool, state: "NOT_ATTACHED" };
+      if (tool === "claude" && ["settings.local.json", "settings.json"].some((f) => existsSync(join(cwd, ".claude", f)) && hooked(join(cwd, ".claude", f)))) return { tool, state: "ATTACHED_HERE_ONLY", folder: cwd, mcp };
+      return { tool, state: "NOT_ATTACHED", mcp };
     } catch {
-      return { tool, state: "SETTINGS_FILE_UNREADABLE" };
+      return { tool, state: "SETTINGS_FILE_UNREADABLE", mcp };
     }
   });
   let last = null;
@@ -717,6 +1133,9 @@ export function tell(kind, r, lang = "fr") {
         const then = fr ? t.then : t.thenEn;
         if (then) lines.push("          " + then);
       }
+      if (t.mcp === "REGISTERED" || t.mcp === "WOULD_REGISTER")
+        lines.push(fr ? `          + son IA ${r.dryRun ? "pourrait" : "peut"} demander à SkeptOpus avant de dire « c'est fait » (serveur MCP)` : `          + its AI ${r.dryRun ? "could" : "can"} ask SkeptOpus before it says "done" (MCP server)`);
+      else if (t.mcp === "FAILED") lines.push(fr ? `  [ !! ]  ${name} : le serveur MCP n'a pas pu être déclaré, rien n'a été touché (${t.mcpFile})` : `  [ !! ]  ${name}: the MCP server could not be declared, nothing was touched (${t.mcpFile})`);
     }
     if (!r.tools.some((t) => t.state === "ATTACHED" || t.state === "WOULD_ATTACH")) lines.push("", fr ? "Aucun outil reconnu n'a été trouvé. SkeptOpus marche quand même avec n'importe quelle IA : copiez sa réponse, puis lancez « skeptopus clip »." : "No known tool was found. SkeptOpus still works with any AI: copy its answer, then run \"skeptopus clip\".");
     lines.push("");
@@ -725,14 +1144,14 @@ export function tell(kind, r, lang = "fr") {
     lines.push(fr ? "Ouvrir le journal : skeptopus journal --open     Tout retirer : skeptopus uninstall" : "Open the journal: skeptopus journal --open     Remove everything: skeptopus uninstall");
   } else if (kind === "uninstall") {
     lines.push(fr ? (r.dryRun ? "SkeptOpus serait retiré de :" : "SkeptOpus est retiré de :") : r.dryRun ? "SkeptOpus would be removed from:" : "SkeptOpus is removed from:");
-    for (const t of r.tools) if (t.removed) lines.push(`  [ OK ]  ${TOOL_NAME[t.tool]}`);
-    if (!r.tools.some((t) => t.removed)) lines.push(fr ? "  (il n'était accroché à aucun outil)" : "  (it was not hooked to any tool)");
+    for (const t of r.tools) if (t.removed || t.mcpRemoved) lines.push(`  [ OK ]  ${TOOL_NAME[t.tool]}`);
+    if (!r.tools.some((t) => t.removed || t.mcpRemoved)) lines.push(fr ? "  (il n'était accroché à aucun outil)" : "  (it was not hooked to any tool)");
     lines.push("", fr ? `Votre journal et vos réglages restent dans ${r.home}. Supprimez ce dossier si vous ne voulez rien garder.` : `Your journal and settings stay in ${r.home}. Delete that folder if you want to keep nothing.`);
   } else {
     lines.push(`SkeptOpus ${r.version}  ·  ${r.home}`, fr ? (r.engine ? "Moteur : en place" : "Moteur : absent de ce dossier") : r.engine ? "Engine: in place" : "Engine: not in this folder");
     for (const t of r.tools) {
       const word = { ATTACHED: fr ? "accroché" : "hooked", ATTACHED_HERE_ONLY: fr ? "accroché pour ce dossier seulement (" + t.folder + ")" : "hooked for this folder only (" + t.folder + ")", NOT_ATTACHED: fr ? "présent, pas accroché" : "present, not hooked", ABSENT: fr ? "pas trouvé" : "not found", SETTINGS_FILE_UNREADABLE: fr ? "réglages illisibles" : "settings unreadable" }[t.state];
-      lines.push(`  ${t.state.startsWith("ATTACHED") ? "[ OK ]" : "[ -- ]"}  ${TOOL_NAME[t.tool]} : ${word}`);
+      lines.push(`  ${t.state.startsWith("ATTACHED") ? "[ OK ]" : "[ -- ]"}  ${TOOL_NAME[t.tool]} : ${word}${t.state === "ABSENT" ? "" : fr ? (t.mcp ? " · son IA peut demander avant de répondre (MCP)" : " · serveur MCP non déclaré") : t.mcp ? " · its AI can ask before answering (MCP)" : " · MCP server not declared"}`);
     }
     lines.push(fr ? `Vérifications gardées : ${r.checks}${r.last ? " (dernière : " + r.last + ")" : ""}` : `Checks kept: ${r.checks}${r.last ? " (last: " + r.last + ")" : ""}`);
   }
@@ -742,7 +1161,7 @@ export function tell(kind, r, lang = "fr") {
 // ---------- the journal: what SkeptOpus checked, kept where the human can open it ----------
 // The folder of this standalone tool (its journal and settings). It holds no secret. See homeOf() in observe.mjs.
 const homeDir = () => homeOf();
-const target = (c) => c.path ?? c.sha ?? c.id ?? c.name ?? c.text ?? (c.pr ? "#" + c.pr : c.total ? c.passed + "/" + c.total : "");
+const target = (c) => c.path ?? c.url ?? c.sha ?? c.id ?? c.name ?? c.text ?? (c.pr ? "#" + c.pr : c.total ? c.passed + "/" + c.total : "");
 export function remember(report, meta = {}, refresh = true) {
   const dir = homeDir();
   mkdirSync(dir, { recursive: true });
@@ -755,7 +1174,17 @@ export function remember(report, meta = {}, refresh = true) {
     excerpt: meta.excerpt ?? null,
     cwd: meta.cwd ?? null,
     verdict: report.verdict,
-    rows: report.rows.map((r) => ({ verdict: r.verdict, kind: r.claim.kind, negated: r.claim.negated, target: target(r.claim), why: r.why, note: r.facts?.check ?? null, said: String(r.claim.sentence ?? "").slice(0, 220) })),
+    rows: report.rows.map((r) => ({
+      verdict: r.verdict,
+      kind: r.claim.kind,
+      negated: r.claim.negated,
+      target: target(r.claim),
+      why: r.why,
+      note: r.facts?.check ?? null,
+      said: String(r.claim.sentence ?? "").slice(0, 220),
+      // A file seen is kept with the time it carried then: the page can say later that it changed since.
+      ...(r.verdict === "PROVEN" && r.facts?.path && r.facts?.modifiedAt ? { path: r.facts.path, mtime: r.facts.modifiedAt } : {}),
+    })),
   };
   appendFileSync(join(dir, "historique.jsonl"), JSON.stringify(entry) + "\n");
   if (refresh) writeJournal();
@@ -898,6 +1327,7 @@ ul{list-style:none;margin:0;padding:0}li{display:flex;gap:14px;padding:10px 0;bo
 li strong{display:block;font:650 16px/1.4 var(--t);word-break:break-word}li em{display:block;font:400 15.5px/1.5 var(--t);font-style:normal;color:#3d3833}
 .said{margin:4px 0 0;font:italic 400 15.5px/1.5 var(--d);font-variation-settings:"opsz" 14;color:#5a534b}
 code{display:inline-block;max-width:100%;vertical-align:baseline;font:500 12.5px/1.5 var(--m);color:inherit;background:var(--paper);border-radius:5px;padding:1px 6px;overflow-wrap:anywhere}
+.since{display:inline-block;margin-inline-start:8px;vertical-align:2px;font:700 10px/1 var(--t);letter-spacing:.12em;text-transform:uppercase;color:#B7690B;border:1.5px dashed currentColor;border-radius:3px;padding:3px 6px 2px}
 .stamp{flex:none;align-self:flex-start;font:800 11.5px/1 var(--t);letter-spacing:.16em;text-transform:uppercase;white-space:nowrap;border:2px solid currentColor;border-radius:3px;padding:6px 9px 5px;transform:rotate(-3deg)}.stamp.big{font-size:12.5px}
 .ok .stamp,.tile.ok b{color:#137A4B}.warn .stamp,.tile.warn b{color:#B7690B}.bad .stamp,.tile.bad b{color:#CD3435}.unk .stamp,.tile.unk b{color:#6f6a60}
 li.ok .stamp{color:#137A4B}li.warn .stamp{color:#B7690B}li.bad .stamp{color:#CD3435}li.unk .stamp{color:#6f6a60}
@@ -1043,7 +1473,7 @@ export function journalHtml(entries, now = new Date(), options = {}) {
       .map((e) => {
         const head = dayKey(e.at) !== last ? ((last = dayKey(e.at)), `<h2>${esc(day(e.at))}</h2>`) : "";
         const rows = e.rows
-          .map((r) => `<li class="${TONE[r.verdict]}"><span class="stamp">${esc(w[r.verdict])}</span><div><strong>${r.negated ? esc(p.not) : ""}${esc(w.kind[r.kind] ?? r.kind)}${r.target ? " <code>" + esc(r.target) + "</code>" : ""}</strong><em>${esc(say(lang, r.why))}${r.note ? " <b>" + esc(w.open.trim() + r.note + w.close) + "</b>" : ""}</em>${r.said ? `<p class="said" dir="auto">${p.quotes[0]}${esc(r.said)}${p.quotes[1]}</p>` : ""}</div></li>`)
+          .map((r) => `<li class="${TONE[r.verdict]}"><span class="stamp">${esc(w[r.verdict])}</span><div><strong>${r.negated ? esc(p.not) : ""}${esc(w.kind[r.kind] ?? r.kind)}${r.target ? " <code>" + esc(r.target) + "</code>" : ""}${r.since && p.since?.[r.since] ? ' <span class="since">' + esc(p.since[r.since]) + "</span>" : ""}</strong><em>${esc(say(lang, r.why))}${r.note ? " <b>" + esc(w.open.trim() + r.note + w.close) + "</b>" : ""}</em>${r.said ? `<p class="said" dir="auto">${p.quotes[0]}${esc(r.said)}${p.quotes[1]}</p>` : ""}</div></li>`)
           .join("");
         const erratum = e.erratum ? `<p class="erratum"><b>${esc(p.erratum)}</b> ${esc(e.erratum)}</p>` : "";
         const source = sourceLabel(lang, e.source);
@@ -1131,7 +1561,25 @@ export function journalFor(dir = homeDir(), host = {}) {
   const fonts = beside("fonts", (f) => f.endsWith(".woff2")).length ? (typeof host.fonts === "string" && host.fonts ? host.fonts : "fonts/") : null;
   // The language shown first: the one the host's reader chose, else the user's setting.
   const lang = typeof host.lang === "string" && host.lang ? host.lang : typeof json("config.json").lang === "string" ? json("config.json").lang : undefined;
-  return journalHtml(kept(dir), new Date(), { anim: host.embedded ? null : anim, fonts, lang, embedded: host.embedded, nonce: host.nonce, csp: host.csp });
+  return journalHtml(freshen(kept(dir)), new Date(), { anim: host.embedded ? null : anim, fonts, lang, embedded: host.embedded, nonce: host.nonce, csp: host.csp });
+}
+/**
+ * A "seen" is true at the time it was seen. A file seen at 3 a.m. and changed or deleted since is marked so on the
+ * page, the morning after: the answer of the night is not rewritten, it is dated.
+ */
+export function freshen(entries, stat = statSync) {
+  return entries.map((e) => {
+    if (!Array.isArray(e.rows) || !e.rows.some((r) => r.path && r.mtime)) return e;
+    const rows = e.rows.map((r) => {
+      if (r.verdict !== "PROVEN" || !r.path || !r.mtime) return r;
+      try {
+        return Math.abs(stat(r.path).mtimeMs - Date.parse(r.mtime)) > 1500 ? { ...r, since: "CHANGED" } : r;
+      } catch {
+        return { ...r, since: "GONE" };
+      }
+    });
+    return { ...e, rows };
+  });
 }
 /** What the journal keeps, newest first, each answer found wrong carrying its correction. */
 function kept(dir = homeDir()) {
@@ -1148,6 +1596,8 @@ function usage() {
   console.error("SkeptOpus " + VERSION + "\n       skeptopus install [--dry-run] [--skip claude,cursor,...]   (hook every AI coding tool found on this machine)\n       skeptopus status   |   skeptopus uninstall [--dry-run]   |   skeptopus journal --open");
   console.error("       skeptopus attach <claude|codex|cursor|gemini> [--dry-run]   skeptopus detach <tool>");
   console.error("       skeptopus clip [--open] [--text-file path]   (check the text you just copied, from any AI)\n       skeptopus hook [--from tool] [--out claude|text|none]   (payload on stdin, or as a JSON argument)");
+  console.error("       skeptopus mcp   (a server an AI calls itself before it says \"done\": Model Context Protocol on stdin and stdout)");
+  console.error("       skeptopus init [--cwd dir] [--apply] [--profile calm|normal|strict]   (find how a folder runs its tests; runs nothing)\n       skeptopus config [--cwd dir] [--json]   (the settings in effect for a folder, and where they come from)");
   console.error("       skeptopus glance [--json]   (the state of the day in one line)\n       skeptopus journal --print [--embedded] [--fonts url] [--nonce n] [--csp policy] [--lang xx]   (the page itself, for a host that shows it)");
   console.error("usage: skeptopus check --message <text> | --message-file <path> [--cwd dir] [--also dir]... [--json] [--lang fr|en]\n       skeptopus transcript <session.jsonl> [--last N] [--also dir]... [--json]\n       skeptopus hook   (Claude Code Stop hook: JSON on stdin)");
   process.exit(64);

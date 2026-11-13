@@ -2,7 +2,7 @@
 // bare repository standing in for "the remote"), never the network.
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
 
@@ -1096,4 +1096,348 @@ test("glance: the state of the day in one line, for a host that has one line", (
   assert.deepEqual([last.source, last.verdict, last.rows[0].target], ["clipboard", "NOT_PROVEN", "nowhere/at-all.md"]);
   assert.equal(spawnSync(process.execPath, [cli, "glance"], { encoding: "utf8", env }).stdout, "Aujourd'hui : 1 refusé. À regarder.\n");
   assert.equal(JSON.parse(spawnSync(process.execPath, [cli, "glance", "--json"], { encoding: "utf8", env }).stdout).home, live);
+});
+
+test("mcp: both eras of the protocol are spoken, and nothing is answered to a notification", async () => {
+  const { answer, MODERN, LEGACY } = await import("../core/mcp.mjs");
+  const engine = { version: "9.9.9", langs: LANGS, cwd: "/w", check: async (m, cwd) => ({ text: "seen " + m + " in " + cwd, structured: { verdict: "PROVEN", claims: [], advice: "ok" } }), today: () => ({ text: "calm", structured: { checks: 0 } }), capabilities: (cwd) => ({ text: "here " + cwd, structured: {} }) };
+  const meta = (v = MODERN[0]) => ({ _meta: { "io.modelcontextprotocol/protocolVersion": v, "io.modelcontextprotocol/clientInfo": { name: "t", version: "1" }, "io.modelcontextprotocol/clientCapabilities": {} } });
+  // Legacy: the handshake picks the client's own revision when it is one SkeptOpus speaks, else the newest legacy one.
+  const state = {};
+  const init = await answer({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "x", version: "1" } } }, engine, state);
+  assert.deepEqual([init.result.protocolVersion, init.result.serverInfo.name, init.result.serverInfo.version, Boolean(init.result.capabilities.tools)], ["2025-06-18", "skeptopus", "9.9.9", true]);
+  assert.equal((await answer({ jsonrpc: "2.0", id: 2, method: "initialize", params: { protocolVersion: "2099-01-01" } }, engine, {})).result.protocolVersion, LEGACY[0]);
+  assert.equal(await answer({ jsonrpc: "2.0", method: "notifications/initialized" }, engine, state), null);
+  const legacyList = await answer({ jsonrpc: "2.0", id: 3, method: "tools/list" }, engine, state);
+  assert.deepEqual(legacyList.result.tools.map((t) => t.name), ["check", "today", "what_can_you_check"]);
+  assert.equal("resultType" in legacyList.result, false, "a legacy client gets exactly its revision's shape");
+  const legacyCall = await answer({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "check", arguments: { message: "Done.", cwd: "/elsewhere" } } }, engine, state);
+  assert.equal(legacyCall.result.isError, false);
+  assert.match(legacyCall.result.content[0].text, /^seen Done\. in .*elsewhere/);
+  assert.equal(legacyCall.result.structuredContent.verdict, "PROVEN");
+  // Modern: no handshake; the version travels with every request; discovery says who answers.
+  const discover = await answer({ jsonrpc: "2.0", id: "d", method: "server/discover", params: meta() }, engine, {});
+  assert.deepEqual([discover.result.resultType, discover.result.supportedVersions[0], discover.result._meta["io.modelcontextprotocol/serverInfo"].name], ["complete", "2026-07-28", "skeptopus"]);
+  assert.match(discover.result.instructions, /before you tell the user/i);
+  const modernList = await answer({ jsonrpc: "2.0", id: 5, method: "tools/list", params: meta() }, engine, {});
+  assert.equal(modernList.result.resultType, "complete");
+  assert.ok(modernList.result.ttlMs > 0);
+  const modernCall = await answer({ jsonrpc: "2.0", id: 6, method: "tools/call", params: { name: "today", arguments: {}, ...meta() } }, engine, {});
+  assert.deepEqual([modernCall.result.resultType, modernCall.result.content[0].text], ["complete", "calm"]);
+  // A version SkeptOpus does not speak is refused with the list of the ones it does.
+  const old = await answer({ jsonrpc: "2.0", id: 7, method: "tools/list", params: meta("1900-01-01") }, engine, {});
+  assert.deepEqual([old.error.code, old.error.data.requested, old.error.data.supported.includes("2025-11-25")], [-32022, "1900-01-01", true]);
+  // Wrong calls are said to the model in a way it can act on.
+  assert.equal((await answer({ jsonrpc: "2.0", id: 8, method: "tools/call", params: { name: "check", arguments: { message: "  " } } }, engine, {})).result.isError, true);
+  assert.equal((await answer({ jsonrpc: "2.0", id: 9, method: "tools/call", params: { name: "nope", arguments: {} } }, engine, {})).error.code, -32602);
+  assert.equal((await answer({ jsonrpc: "2.0", id: 10, method: "resources/list" }, engine, {})).error.code, -32601);
+  const broken = { ...engine, check: async () => { throw new Error("disk gone"); } };
+  const crash = await answer({ jsonrpc: "2.0", id: 11, method: "tools/call", params: { name: "check", arguments: { message: "Done." } } }, broken, {});
+  assert.deepEqual([crash.result.isError, /disk gone/.test(crash.result.content[0].text)], [true, true]);
+});
+
+test("mcp: the real server, started as a tool starts it, checks a message against the folder", () => {
+  const dir = scratch("skeptopus-mcp-");
+  const home = join(dir, "home");
+  mkdirSync(home);
+  writeFileSync(join(dir, "notes.md"), "hello");
+  const lines = [
+    { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "test", version: "1" } } },
+    { jsonrpc: "2.0", method: "notifications/initialized" },
+    { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "check", arguments: { message: "I created `notes.md` and `missing.md`.", cwd: dir } } },
+    { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "what_can_you_check", arguments: { cwd: dir } } },
+  ];
+  const ran = spawnSync(process.execPath, [resolve("core", "cli.mjs"), "mcp"], { input: lines.map((l) => JSON.stringify(l)).join("\n") + "\n", encoding: "utf8", cwd: dir, env: { ...process.env, SKEPTOPUS_HOME: home }, timeout: 60000 });
+  assert.equal(ran.status, 0, ran.stderr);
+  const out = ran.stdout.trim().split("\n").map((l) => JSON.parse(l));
+  assert.deepEqual(out.map((o) => o.id).sort(), [1, 2, 3], "one answer per request, none for the notification");
+  const checked = out.find((o) => o.id === 2).result;
+  assert.equal(checked.structuredContent.verdict, "NOT_PROVEN");
+  assert.deepEqual(checked.structuredContent.claims.map((c) => c.verdict + ":" + c.target), ["PROVEN:notes.md", "NOT_PROVEN:missing.md"]);
+  assert.match(checked.content[0].text, /was not found\. Do it, or tell the user/);
+  assert.match(out.find((o) => o.id === 3).result.content[0].text, /no test command declared/);
+  // A check by the AI itself is not a broken promise to the human: it stays out of the journal unless asked.
+  assert.equal(existsSync(join(home, "historique.jsonl")), false);
+});
+
+test("mcp: install declares the server to every tool found, keeps their other servers, and takes only its own back", async () => {
+  const { register, unregister, registered, stripTomlServer, serverEntry, nodeForServers } = await import("../core/cli.mjs");
+  const home = scratch("skeptopus-mcp-install-");
+  const read = (...p) => JSON.parse(readFileSync(join(home, ...p), "utf8"));
+  mkdirSync(join(home, ".claude"));
+  writeFileSync(join(home, ".claude.json"), JSON.stringify({ numStartups: 7, mcpServers: { other: { command: "x" } } }));
+  mkdirSync(join(home, ".cursor"));
+  mkdirSync(join(home, ".codex"));
+  const toml = 'model = "o"\n\n[mcp_servers.node_repl]\ncommand = "node"\nargs = ["repl.js"]\n\n[mcp_servers.node_repl.env]\nA = "1"\n';
+  writeFileSync(join(home, ".codex", "config.toml"), toml);
+  const done = install({ home, env: {}, shortcuts: false });
+  assert.deepEqual(done.tools.map((t) => t.tool + ":" + (t.mcp ?? "-")), ["claude:REGISTERED", "cursor:REGISTERED", "codex:REGISTERED", "gemini:-"]);
+  const engine = join(home, ".skeptopus", "app", "cli.mjs").replace(/\\/g, "/");
+  assert.equal(read(".claude.json").numStartups, 7, "Claude Code's own state survives");
+  assert.deepEqual(Object.keys(read(".claude.json").mcpServers), ["other", "skeptopus"]);
+  assert.deepEqual(read(".claude.json").mcpServers.skeptopus.args, [engine, "mcp"]);
+  assert.equal(read(".claude.json").mcpServers.skeptopus.type, "stdio");
+  assert.deepEqual(read(".cursor", "mcp.json").mcpServers.skeptopus.args, [engine, "mcp"]);
+  const codex = readFileSync(join(home, ".codex", "config.toml"), "utf8");
+  assert.ok(codex.startsWith(toml.trimEnd()), "the user's Codex settings are kept as they were");
+  assert.match(codex, /\[mcp_servers\.skeptopus\]\n# Written by SkeptOpus[^\n]*\ncommand = "[^"]+"\nargs = \["[^"]*cli\.mjs", "mcp"\]/);
+  assert.deepEqual(["claude", "cursor", "codex", "gemini"].map((t) => registered(t, home)), [true, true, true, false]);
+  assert.match(tell("install", done, "fr"), /son IA peut demander à SkeptOpus avant de dire « c'est fait »/);
+  // Again: replaced, never doubled.
+  install({ home, env: {}, shortcuts: false });
+  assert.equal(stripTomlServer(readFileSync(join(home, ".codex", "config.toml"), "utf8")).removed, 1);
+  assert.deepEqual(status({ home, env: {}, cwd: home }).tools.map((t) => t.mcp ?? "-"), [true, true, true, "-"]);
+  // Out: only SkeptOpus's entries leave.
+  const out = uninstall({ home, env: {} });
+  assert.deepEqual(out.tools.map((t) => t.mcpRemoved), [1, 1, 1, 0]);
+  assert.deepEqual(read(".claude.json").mcpServers, { other: { command: "x" } });
+  assert.equal(read(".cursor", "mcp.json").mcpServers, undefined, "no empty list is left behind");
+  assert.equal(readFileSync(join(home, ".codex", "config.toml"), "utf8"), toml);
+  // "--skip mcp" declares no server anywhere.
+  const home2 = scratch("skeptopus-mcp-skip-");
+  mkdirSync(join(home2, ".cursor"));
+  assert.equal(install({ home: home2, env: {}, shortcuts: false, skip: ["mcp"] }).tools[1].mcp, undefined);
+  assert.equal(existsSync(join(home2, ".cursor", "mcp.json")), false);
+  // A settings file SkeptOpus cannot read is left alone and said.
+  writeFileSync(join(home2, ".cursor", "mcp.json"), "{ not json");
+  assert.deepEqual([register("cursor", { home: home2 }).reason, readFileSync(join(home2, ".cursor", "mcp.json"), "utf8")], ["SETTINGS_FILE_UNREADABLE", "{ not json"]);
+  assert.equal(unregister("cursor", { home: home2 }).ok, false);
+  // The server is started without a shell: a full path with a space is fine, a version manager's is not.
+  assert.equal(nodeForServers("C:\\Program Files\\nodejs\\node.exe"), "C:/Program Files/nodejs/node.exe");
+  assert.equal(nodeForServers("/home/u/.nvm/versions/node/v22.1.0/bin/node"), "node");
+  assert.equal(nodeForServers("C:\\Program Files\\Microsoft VS Code\\Code.exe"), "node", "an editor playing node is never named");
+  assert.deepEqual(serverEntry("C:\\x\\cli.mjs", "/usr/bin/node"), { command: "/usr/bin/node", args: ["C:/x/cli.mjs", "mcp"] });
+});
+
+test("settings: a project's own settings live in the user's file, the most specific folder wins, a project file still cannot say what to run", async () => {
+  const { loadConfig } = await import("../core/observe.mjs");
+  const dir = scratch("skeptopus-projects-");
+  const home = join(dir, "home");
+  const app = join(dir, "app");
+  const sub = join(app, "packages", "ui");
+  mkdirSync(home);
+  mkdirSync(sub, { recursive: true });
+  writeFileSync(
+    join(home, "config.json"),
+    JSON.stringify({
+      test: ["node", "-v"],
+      checks: [{ name: "everywhere", match: "x", run: ["x"] }],
+      projects: { [app.replace(/\\/g, "/")]: { test: ["node", "app-tests"], profile: "strict", checks: [{ name: "app only", match: "y", run: ["y"] }] }, [join(app, "packages")]: { test: ["node", "pkg-tests"] } },
+    }),
+  );
+  const env = { SKEPTOPUS_HOME: home };
+  const inApp = loadConfig(undefined, app, env);
+  assert.deepEqual([inApp.test, inApp.profile, inApp.checks.map((c) => c.name), inApp.project], [["node", "app-tests"], "strict", ["everywhere", "app only"], resolve(app)]);
+  assert.equal(inApp.projects, undefined, "only the folder's own entry is kept, not the whole list");
+  // A folder inside two declared projects takes the closer one, alone.
+  const inSub = loadConfig(undefined, sub, env);
+  assert.deepEqual([inSub.test, inSub.profile ?? "normal", inSub.project], [["node", "pkg-tests"], "normal", resolve(join(app, "packages"))]);
+  // Elsewhere, the user's general settings.
+  const other = loadConfig(undefined, scratch("skeptopus-elsewhere-"), env);
+  assert.deepEqual([other.test, other.project], [["node", "-v"], undefined]);
+  // A name that only starts like the project's is another folder.
+  mkdirSync(app + "-old");
+  assert.equal(loadConfig(undefined, app + "-old", env).project, undefined);
+  if (process.platform === "win32") assert.equal(loadConfig(undefined, app.toUpperCase(), env).project, resolve(app), "Windows folders are the same whatever their case");
+  // What a project brings along may still say where to look, never what to run.
+  writeFileSync(join(app, ".skeptopus.json"), JSON.stringify({ test: ["evil"], profile: "calm", projects: { [app]: { test: ["evil"] } } }));
+  assert.deepEqual([loadConfig(undefined, app, env).test, loadConfig(undefined, app, env).profile], [["node", "app-tests"], "strict"]);
+});
+
+test("profiles: strict no longer counts a vague done, unstable tests or a file of unknown age as seen; calm speaks only of what is false", async () => {
+  const dir = scratch("skeptopus-profiles-");
+  writeFileSync(join(dir, "made.md"), "x");
+  const flaky = join(dir, "flaky.mjs");
+  const mark = join(dir, "ran-once");
+  writeFileSync(flaky, "import { existsSync, writeFileSync } from 'node:fs'; if (existsSync(" + JSON.stringify(mark) + ")) process.exit(0); writeFileSync(" + JSON.stringify(mark) + ", 'x'); process.exit(1);");
+  const ctx = (profile) => ({ roots: [dir], config: { profile, test: [process.execPath, flaky] } });
+  assert.deepEqual(await look("Done!", ctx("normal")), ["COULD_NOT_CHECK:NOTHING_CHECKABLE_WAS_CLAIMED"]);
+  assert.deepEqual(await look("Done!", ctx("strict")), ["NOT_PROVEN:VAGUE_DONE_REFUSED"]);
+  assert.deepEqual(await look("I created `made.md`.", ctx("normal")), ["PROVEN:FILE_PRESENT_AGE_UNKNOWN"]);
+  assert.deepEqual(await look("I created `made.md`.", ctx("strict")), ["COULD_NOT_CHECK:FILE_AGE_UNKNOWN"]);
+  assert.deepEqual(await look("I created `made.md`.", { ...ctx("strict"), sessionStart: new Date(Date.now() - 60000).toISOString() }), ["PROVEN:FILE_PRESENT_AND_FRESH"], "a fresh file is still seen");
+  assert.deepEqual(await look("All tests pass.", ctx("strict")), ["COULD_NOT_CHECK:TESTS_PASSED_ONLY_ON_SECOND_RUN"]);
+  rmSync(mark);
+  assert.deepEqual(await look("All tests pass.", ctx("normal")), ["PROVEN:TESTS_PASS_ON_SECOND_RUN"]);
+  assert.deepEqual(await look("All tests pass.", { roots: [dir], config: { profile: "nonsense", test: [process.execPath, flaky] } }), ["PROVEN:TESTS_PASS_NOW"], "an unknown profile is the normal one");
+  for (const lang of LANGS) assert.ok(!say(lang, "VAGUE_DONE_REFUSED").includes("_"), lang + ": the new reasons are said in words");
+  // What reaches the human: the profile decides, unless the user set it.
+  const report = (verdict) => ({ verdict, rows: [] });
+  const shows = (config, verdict) => signalPlan(report(verdict), config, { platform: "win32", sounds: dir }).window;
+  assert.deepEqual(["CONTRADICTED", "NOT_PROVEN", "COULD_NOT_CHECK", "PROVEN"].map((v) => shows({ profile: "calm" }, v)), [true, false, false, false]);
+  assert.deepEqual(["CONTRADICTED", "NOT_PROVEN", "PROVEN"].map((v) => shows({ profile: "strict" }, v)), [true, true, false]);
+  assert.equal(shows({}, "CONTRADICTED"), false, "no profile and no setting: as before, nothing pops up");
+  assert.equal(shows({ profile: "calm", notify: "always" }, "PROVEN"), true, "what the user set wins over the profile");
+});
+
+test("init: finds how a folder runs its tests from its own files, runs nothing, and keeps it for that folder only", async () => {
+  const { detectTests, initProject, settingsReport, tellInit, tellSettings } = await import("../core/cli.mjs");
+  const files = (names) => (p) => names.some((n) => p.replace(/\\/g, "/").endsWith("/" + n));
+  const folder = (content) => {
+    const d = scratch("skeptopus-init-");
+    for (const [name, text] of Object.entries(content)) writeFileSync(join(d, name), text);
+    return d;
+  };
+  const node = folder({ "package.json": JSON.stringify({ scripts: { test: "node --test" } }) });
+  assert.deepEqual(detectTests(node, { platform: "linux" }).test, ["npm", "test"]);
+  assert.deepEqual(detectTests(node, { platform: "linux", has: files(["package.json", "pnpm-lock.yaml"]) }).test, ["pnpm", "test"]);
+  assert.deepEqual(detectTests(node, { platform: "linux", has: files(["package.json", "bun.lock"]) }).test, ["bun", "run", "test"]);
+  // On Windows npm is a command script: npm's own entry is run by node, never through a shell.
+  const win = detectTests(node, { platform: "win32", execPath: "C:\\Program Files\\nodejs\\node.exe", has: files(["package.json", "nodejs/node_modules/npm/bin/npm-cli.js"]) });
+  assert.deepEqual(win.test, ["C:/Program Files/nodejs/node.exe", "C:/Program Files/nodejs/node_modules/npm/bin/npm-cli.js", "test"]);
+  const yarnWin = detectTests(node, { platform: "win32", has: files(["package.json", "yarn.lock"]) });
+  assert.deepEqual([yarnWin.test, yarnWin.note, yarnWin.runner], [null, "NEEDS_A_SHELL_ON_WINDOWS", "yarn"]);
+  assert.equal(detectTests(folder({ "package.json": JSON.stringify({ scripts: { test: 'echo "Error: no test specified" && exit 1' } }) })).test, null, "npm's placeholder is no test command");
+  assert.deepEqual(detectTests(folder({ "Cargo.toml": "[package]" })).test, ["cargo", "test"]);
+  assert.deepEqual(detectTests(folder({ "go.mod": "module x" })).test, ["go", "test", "./..."]);
+  assert.deepEqual(detectTests(folder({ "pyproject.toml": "[tool.pytest.ini_options]\n" }), { platform: "win32" }).test, ["python", "-m", "pytest", "-q"]);
+  assert.deepEqual(detectTests(folder({ Makefile: "build:\n\tcc x.c\ntest:\n\t./run\n" })).test, ["make", "test"]);
+  assert.equal(detectTests(folder({ "README.md": "hi" })).test, null);
+  // Kept for that folder only, in the user's own settings, with what was there before.
+  const home = scratch("skeptopus-init-home-");
+  writeFileSync(join(home, "config.json"), JSON.stringify({ lang: "fr", notify: "problems" }));
+  const env = { SKEPTOPUS_HOME: home };
+  const look1 = initProject(node, { env });
+  assert.deepEqual([look1.applied, JSON.parse(readFileSync(join(home, "config.json"), "utf8")).projects], [false, undefined], "without --apply nothing is written");
+  const kept = initProject(node, { apply: true, profile: "strict", env });
+  assert.equal(kept.applied, true);
+  const saved = JSON.parse(readFileSync(join(home, "config.json"), "utf8"));
+  assert.deepEqual([saved.lang, saved.notify, saved.projects[node.replace(/\\/g, "/")].profile], ["fr", "problems", "strict"]);
+  assert.equal(initProject(node, { profile: "wild", env }).reason, "UNKNOWN_PROFILE");
+  assert.equal(initProject(folder({}), { apply: true, env }).reason, "NOTHING_TO_KEEP");
+  // The settings in effect say where they come from, and what was not understood.
+  saved.colour = "red";
+  writeFileSync(join(home, "config.json"), JSON.stringify(saved));
+  const now = settingsReport(node, { env });
+  assert.deepEqual([now.profile, now.project, now.notify, now.unknown], ["strict", resolve(node), "problems", ["colour"]]);
+  assert.match(tellSettings(now, "fr"), /Profil : strict[\s\S]*Réglages propres à ce projet[\s\S]*Non compris, donc ignoré : colour/);
+  assert.match(tellInit(kept, "fr"), /Rien n'a été lancé\.\nGardé dans vos réglages/);
+  assert.match(tellInit(yarnWin, "fr"), /sans interpréteur de commandes sous Windows/);
+  // The command line: "--apply" never swallows the option after it.
+  const cli = resolve("core", "cli.mjs");
+  const ran = spawnSync(process.execPath, [cli, "init", "--apply", "--profile", "calm", "--cwd", node, "--json"], { encoding: "utf8", env: { ...process.env, SKEPTOPUS_HOME: home } });
+  assert.equal(ran.status, 0, ran.stderr);
+  assert.deepEqual([JSON.parse(ran.stdout).applied, JSON.parse(ran.stdout).profile], [true, "calm"]);
+  const shown = spawnSync(process.execPath, [cli, "config", "--cwd", node], { encoding: "utf8", env: { ...process.env, SKEPTOPUS_HOME: home } });
+  assert.match(shown.stdout, /Profil : calme/);
+});
+
+test("deployed: a page said to be live is opened once, like anyone would, and its answer is said plainly", async () => {
+  const { createServer } = await import("node:http");
+  const hits = [];
+  const server = createServer((req, res) => {
+    hits.push(req.url);
+    const status = { "/": 200, "/gone": 404, "/boom": 500, "/private": 401, "/moved": 302 }[req.url] ?? 200;
+    res.writeHead(status, status === 302 ? { location: "/" } : {});
+    res.end("ok");
+  });
+  await new Promise((done) => server.listen(0, "127.0.0.1", done));
+  const at = "http://127.0.0.1:" + server.address().port;
+  try {
+    const ctx = (config = {}) => ({ roots: [scratch("skeptopus-web-")], config });
+    assert.deepEqual(await look(`Deployed: live at ${at}/ and at ${at}/gone, also ${at}/boom.`, ctx()), ["PROVEN:PAGE_ANSWERS", "CONTRADICTED:PAGE_NOT_FOUND", "CONTRADICTED:PAGE_FAILS"]);
+    assert.deepEqual(await look(`It is running at ${at}/private.`, ctx()), ["COULD_NOT_CHECK:PAGE_NEEDS_A_LOGIN"]);
+    assert.deepEqual(await look(`C'est en ligne sur ${at}/moved.`, ctx()), ["PROVEN:PAGE_ANSWERS"], "a redirect is followed");
+    // The same page named twice is opened once.
+    const before = hits.length;
+    await look(`Deployed to ${at}/. It is live at ${at}/.`, ctx());
+    assert.equal(hits.length - before, 1);
+    // Plans and denials claim nothing; turned off, nothing is opened.
+    assert.deepEqual(await look(`I will deploy to ${at}/ next. Not deployed yet: ${at}/gone`, ctx()), []);
+    const quiet = hits.length;
+    assert.deepEqual(await look(`Deployed: ${at}/`, ctx({ web: false })), ["COULD_NOT_CHECK:WEB_CHECKS_TURNED_OFF"]);
+    assert.equal(hits.length, quiet, "with web checks off, no request leaves");
+    // A request named by its link is checked as a request, never opened as a page.
+    assert.deepEqual(extractClaims("Merged https://github.com/o/r/pull/12, live at https://o.example/.").map((c) => c.kind), ["DEPLOYED", "PR_MERGED"]);
+  } finally {
+    await new Promise((done) => server.close(done));
+  }
+  // A site that does not answer: could not look, never "not found".
+  assert.deepEqual(await look(`Deployed: ${at}/`, { roots: [scratch("skeptopus-web-")], config: { webTimeoutMs: 3000 } }), ["COULD_NOT_CHECK:SITE_UNREACHABLE"]);
+});
+
+test("journal: a file seen at night and changed or deleted since is marked so the morning after", async () => {
+  const { freshen } = await import("../core/cli.mjs");
+  const at = "2026-11-13T02:07:00.000Z";
+  const entries = [{ at, verdict: "PROVEN", rows: [
+    { verdict: "PROVEN", kind: "FILE_WRITTEN", target: "a.md", why: "FILE_PRESENT_AND_FRESH", path: "/w/a.md", mtime: at },
+    { verdict: "PROVEN", kind: "FILE_WRITTEN", target: "b.md", why: "FILE_PRESENT_AND_FRESH", path: "/w/b.md", mtime: at },
+    { verdict: "PROVEN", kind: "FILE_WRITTEN", target: "c.md", why: "FILE_PRESENT_AND_FRESH", path: "/w/c.md", mtime: at },
+    { verdict: "NOT_PROVEN", kind: "FILE_WRITTEN", target: "d.md", why: "FILE_ABSENT" },
+  ] }];
+  const stat = (p) => {
+    if (p.endsWith("a.md")) return { mtimeMs: Date.parse(at) };
+    if (p.endsWith("b.md")) return { mtimeMs: Date.parse(at) + 3600000 };
+    throw new Error("ENOENT");
+  };
+  assert.deepEqual(freshen(entries, stat)[0].rows.map((r) => r.since ?? "-"), ["-", "CHANGED", "GONE", "-"]);
+  assert.equal(entries[0].rows[1].since, undefined, "the log itself is not rewritten");
+  const page = journalHtml(freshen(entries, stat), new Date("2026-11-13T08:00:00Z"), { lang: "en" });
+  assert.match(page, /<span class="since">changed since<\/span>/);
+  assert.match(page, /<span class="since">modifié depuis<\/span>/);
+  // From the command line: a file seen is kept with its time, and the page says so once it changes.
+  const live = scratch("skeptopus-fresh-");
+  const work = join(live, "work");
+  mkdirSync(work);
+  writeFileSync(join(work, "notes.md"), "v1");
+  const env = { ...process.env, SKEPTOPUS_HOME: live };
+  writeFileSync(join(live, "said.txt"), "I created `notes.md`.");
+  spawnSync(process.execPath, [resolve("core", "cli.mjs"), "clip", "--text-file", join(live, "said.txt"), "--cwd", work], { encoding: "utf8", env });
+  const kept = JSON.parse(readFileSync(join(live, "historique.jsonl"), "utf8").trim().split("\n").at(-1));
+  assert.deepEqual([kept.rows[0].verdict, Boolean(kept.rows[0].mtime), kept.rows[0].path.endsWith("notes.md")], ["PROVEN", true, true]);
+  const printed = () => spawnSync(process.execPath, [resolve("core", "cli.mjs"), "journal", "--print", "--lang", "en"], { encoding: "utf8", env, maxBuffer: 64 * 1024 * 1024 }).stdout;
+  assert.doesNotMatch(printed(), /class="since"/);
+  utimesSync(join(work, "notes.md"), new Date(Date.now() + 120000), new Date(Date.now() + 120000));
+  assert.match(printed(), /<span class="since">changed since<\/span>/);
+});
+
+test("ci: a table for a run's summary, JUnit for dashboards, and --fail-on decides the exit", async () => {
+  const { asMarkdown, asJunit, failsOn } = await import("../core/cli.mjs");
+  const dir = scratch("skeptopus-ci-");
+  writeFileSync(join(dir, "a.md"), "x");
+  const real = await check("I created `a.md` and `b.md`.", { roots: [dir] });
+  // A name no path reader would produce, to see that the table and the XML hold whatever a target holds.
+  const report = { ...real, rows: real.rows.map((r) => (r.claim.path === "b.md" ? { ...r, claim: { ...r.claim, path: "b<|>.md" } } : r)) };
+  const md = asMarkdown(report, "en");
+  assert.match(md, /^### SkeptOpus 🟠 /);
+  assert.match(md, /\| ✅ [^|]+ \| file written `a\.md` \| /);
+  assert.ok(md.includes("b<\\|>.md"), "a pipe inside a name does not break the table");
+  const junit = asJunit(report, "en");
+  assert.match(junit, /<testsuites name="SkeptOpus" tests="2" failures="1" skipped="0">/);
+  assert.match(junit, /<testcase classname="skeptopus.FILE_WRITTEN" name="file written b&lt;\|&gt;.md"><failure type="NOT_PROVEN" message="[^"]+"\/><\/testcase>/);
+  assert.deepEqual(["contradicted", "problems", "anything", "never"].map((rule) => ["PROVEN", "NOT_PROVEN", "CONTRADICTED", "COULD_NOT_CHECK"].map((v) => (failsOn(v, rule) ? 1 : 0)).join("")), ["0010", "0110", "0111", "0000"]);
+  // The command line, as a CI run calls it.
+  const cli = resolve("core", "cli.mjs");
+  const run = (...args) => spawnSync(process.execPath, [cli, "check", "--message", "I created `a.md` and `b.md`.", "--cwd", dir, ...args], { encoding: "utf8", env: { ...process.env, SKEPTOPUS_HOME: join(dir, "home") } });
+  const out = join(dir, "skeptopus.xml");
+  const soft = run("--format", "junit", "--output", out, "--fail-on", "contradicted");
+  assert.equal(soft.status, 0, "not found is not a contradiction");
+  assert.match(readFileSync(out, "utf8"), /failures="1"/);
+  assert.match(soft.stdout, /^SkeptOpus · \[ /, "the console keeps the short line when the report goes to a file");
+  assert.equal(run("--fail-on", "problems").status, 1);
+  assert.equal(run("--fail-on", "sometimes").status, 64);
+  assert.equal(run().status, 1, "without --fail-on, one exit code per answer, as before");
+  // The action never pastes what a pull request says into a command.
+  // Kept in release/public here; at the root of the public repository.
+  const action = readFileSync([resolve("release", "public", "action.yml"), resolve("action.yml")].find((f) => existsSync(f)), "utf8");
+  assert.ok(!/\$\{\{\s*github\.event\.pull_request\.(body|title)/.test(action));
+  assert.match(action, /--fail-on "\$FAIL_ON"/);
+  assert.match(action, /GITHUB_STEP_SUMMARY/);
+});
+
+test("what the README's real run showed (2026-11-13): an opening 'Done.', the longest label, and Node's own heading", async () => {
+  // "Done." followed by what was done is an opening word; alone, it is still vague.
+  assert.deepEqual(kinds("Done. Committed abc1234, pushed to origin."), ["COMMITTED:abc1234", "PUSHED"]);
+  assert.deepEqual(kinds("Done."), ["VAGUE_DONE"]);
+  // The longest label keeps a space before the claim it labels.
+  const report = { verdict: "COULD_NOT_CHECK", rows: [{ claim: { kind: "TESTS_PASS", negated: false }, verdict: "COULD_NOT_CHECK", why: "NO_TEST_COMMAND_DECLARED" }] };
+  assert.match(render(report, "en"), /\[COULDN'T LOOK\] tests pass/);
+  // Node's runner ends with a "failing tests:" heading: the names told are the tests', never the heading.
+  // The runner's own output is played back as Node 24 prints it: a nested `node --test` inside this suite would report
+  // to the parent run instead of failing, so the real runner cannot stand in here.
+  const dir = scratch("skeptopus-names-");
+  const runner = join(dir, "runner.mjs");
+  writeFileSync(runner, "console.log(" + JSON.stringify("✖ the total counts each quantity (1.2ms)\nℹ tests 2\nℹ pass 1\nℹ fail 1\n\n✖ failing tests:\n\ntest at test\\cart.test.mjs:1:1\n✖ the total counts each quantity (1.2ms)") + "); process.exit(1);\n");
+  const got = await check("All tests pass.", { roots: [dir], config: { test: [process.execPath, runner], testCwd: dir } });
+  assert.deepEqual([got.rows[0].verdict, got.rows[0].facts.check], ["CONTRADICTED", "the total counts each quantity"]);
 });
