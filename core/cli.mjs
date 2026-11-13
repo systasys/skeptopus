@@ -930,7 +930,8 @@ const PAGE_SCRIPT = `
   var still=window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches;
   // Awake only while the last check is recent: the motion says "it is watching right now".
   var last=Date.parse(b.getAttribute("data-last")||""),age=isNaN(last)?Infinity:(Date.now()-last)/60000;
-  if(age>30){b.classList.add("asleep");if(isFinite(age)){[].forEach.call(document.querySelectorAll(".mood"),function(m){try{var t=JSON.parse(m.getAttribute("data-asleep")),h=Math.round(age/60);m.textContent=age<50?t[0].replace("{n}",Math.round(age)):age<90?t[1]:h===2&&t[3]?t[3]:h>=11&&t[4]?t[4].replace("{n}",h):t[2].replace("{n}",h)}catch(e){}})}}
+  // A day with something to look at keeps its sentence: in the morning, that is the line one opens the page for.
+  if(age>30){b.classList.add("asleep");if(isFinite(age)&&!b.classList.contains("alert")){[].forEach.call(document.querySelectorAll(".mood"),function(m){try{var t=JSON.parse(m.getAttribute("data-asleep")),h=Math.round(age/60);m.textContent=age<50?t[0].replace("{n}",Math.round(age)):age<90?t[1]:h===2&&t[3]?t[3]:h>=11&&t[4]?t[4].replace("{n}",h):t[2].replace("{n}",h)}catch(e){}})}}
   // The explanation is open the first time only; in a host's side panel, where room is short, it starts closed.
   if(store.get("sk-seen")||hosted)[].forEach.call(document.querySelectorAll("details.what"),function(d){d.removeAttribute("open")});
   store.set("sk-seen","1");

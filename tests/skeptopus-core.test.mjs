@@ -551,6 +551,18 @@ test("install: the folder SkeptOpus lives in, and a switch never swallows the ne
   assert.equal(existsSync(join(sandbox, ".skeptopus")), false);
 });
 
+test("journal: a day with something to look at keeps its sentence while the octopus rests", () => {
+  // Found on 13/11 while filming the morning scene: opened at 9:00 after a night of checks, the page replaced
+  // "Today: 1 contradicted and 1 not found. Worth a look." with "Nothing new for 6 hours. The octopus is resting.",
+  // which hid the one line one opens the page for. The octopus still sleeps; the sentence stays.
+  const now = new Date("2026-11-13T08:00:00Z");
+  const night = [{ at: "2026-11-13T02:07:00Z", verdict: "CONTRADICTED", rows: [{ verdict: "CONTRADICTED", kind: "TESTS_PASS", target: "115/115", why: "TESTS_FAIL_NOW" }] }];
+  const page = journalHtml(night, now, { lang: "en" });
+  assert.match(page, /<body class="nojs alert"/);
+  assert.match(page, /if\(age>30\)\{b\.classList\.add\("asleep"\);if\(isFinite\(age\)&&!b\.classList\.contains\("alert"\)\)/, "the resting sentence never replaces an alert");
+  assert.match(page, /Today: 1 contradicted\. Worth a look\./);
+});
+
 test("journal: the octopus on top takes the pose of the day's worst answer", () => {
   // Drawn to be read at a glance: arms crossed (not found), pointing in anger (contradicted), blindfolded (couldn't look).
   const now = new Date("2026-11-12T15:00:00Z");
