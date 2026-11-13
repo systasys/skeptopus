@@ -193,6 +193,6 @@ The Spanish, Chinese and Arabic words were written by a non-native author. Corre
 
 ## License
 
-The code is under the MIT license (see `LICENSE`). The SkeptOpus name, the octopus, the other characters, the artwork and the sounds are not: see `TRADEMARKS.md`. The typefaces in `core/fonts` keep their own license (SIL Open Font License).
+The code is under the MIT license (see `LICENSE`). The SkeptOpus name, the octopus, the other characters, the artwork and the sounds are not: see `NOTICE` and `TRADEMARKS.md`. The typefaces in `core/fonts` keep their own license (SIL Open Font License).
 
 <p align="center"><sub><b>SkeptOpus</b>, by <b>SYSTASYS</b> · made by Hichem Benali</sub></p>
