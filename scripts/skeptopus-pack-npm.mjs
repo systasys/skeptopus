@@ -25,6 +25,15 @@ function signer() {
   }
 }
 
+/**
+ * The name the MCP registry checks. It proves the npm package and the registered server have the same owner: the
+ * registry reads `mcpName` in the published package.json and refuses the entry unless it matches `name` in
+ * server.json. One source of truth, so the two can never drift: server.json is read, never retyped here.
+ */
+function mcpName(root) {
+  return JSON.parse(readFileSync(beside(root, "server.json"), "utf8")).name;
+}
+
 /** The README, the license and the notice: written for the public repository, kept beside the engine there. */
 function beside(root, name) {
   for (const at of [join(root, "release", "public", name), join(root, name)]) if (existsSync(at)) return at;
@@ -63,6 +72,7 @@ export function stage(dir, { root = ROOT } = {}) {
     name: core.name,
     version: core.version,
     description: core.description,
+    mcpName: mcpName(root),
     keywords: ["ai", "agent", "verification", "claude-code", "codex", "cursor", "gemini-cli", "mcp", "vibe-coding", "hooks"],
     homepage: HOME + "#readme",
     bugs: { url: HOME + "/issues" },

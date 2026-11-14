@@ -194,3 +194,28 @@ test("npm: the engine as a package, publishable only on purpose, with a README t
   assert.ok(readme.includes(`https://raw.githubusercontent.com/systasys/skeptopus/v${engine.version}/media/banner-dark.png`));
   assert.equal(absolute('<img src="core/art/x.webp"> [a](LICENSE) [b](https://x.y) <a href="#top">', "1.2.3"), '<img src="https://raw.githubusercontent.com/systasys/skeptopus/v1.2.3/core/art/x.webp"> [a](https://github.com/systasys/skeptopus/blob/v1.2.3/LICENSE) [b](https://x.y) <a href="#top">');
 });
+
+test("mcp registry: the package and server.json name the same server, at the same version", () => {
+  const work = scratch("skeptopus-mcpname-");
+  const { pkg } = stageNpm(join(work, "package"));
+  const server = JSON.parse(readFileSync(resolve("release", "public", "server.json"), "utf8"));
+  const engine = JSON.parse(readFileSync(resolve("core", "package.json"), "utf8"));
+  // The registry reads mcpName in the published package.json and refuses the entry unless it equals name in
+  // server.json. Retyping either one would publish a package the registry cannot tie to its server.
+  assert.equal(pkg.mcpName, server.name, "mcpName is server.json's name, never retyped");
+  assert.match(server.name, /^io\.github\.systasys\/[a-z0-9._-]+$/, "the namespace is the one the GitHub owner can claim");
+  // A version left behind points the registry at a package that does not carry this entry.
+  assert.equal(server.version, engine.version, "server.json follows the engine's version");
+  assert.equal(server.packages.length, 1);
+  const only = server.packages[0];
+  assert.equal(only.identifier, pkg.name, "the package named is the one published");
+  assert.equal(only.version, engine.version);
+  assert.equal(only.registryType, "npm");
+  assert.equal(only.registryBaseUrl, "https://registry.npmjs.org", "the registry accepts no other npm mirror");
+  assert.deepEqual(only.transport, { type: "stdio" });
+  // Without this argument a client would run the command line itself, which speaks no MCP on its own.
+  assert.deepEqual(only.packageArguments, [{ type: "positional", value: "mcp" }]);
+  // The registry's own limits, checked here so a refusal is not discovered at publishing time.
+  assert.ok(server.description.length <= 100, "the registry caps a description at 100 characters");
+  assert.ok(server.title.length <= 100);
+});

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.systasys/skeptopus",
+  "title": "SkeptOpus",
+  "description": "Your AI says it's done. SkeptOpus goes and looks: commits, pushes, tests, files, deploys.",
+  "version": "0.2.3",
+  "websiteUrl": "https://github.com/systasys/skeptopus#readme",
+  "repository": {
+    "url": "https://github.com/systasys/skeptopus",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "skeptopus",
+      "version": "0.2.3",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp"
+        }
+      ]
+    }
+  ]
+}

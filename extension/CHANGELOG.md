@@ -1,5 +1,9 @@
 # What changed
 
+## 0.2.3
+
+Nothing changes for you: the extension and its engine ship as one version, and this one went out so the engine's npm package could be listed in the official MCP registry.
+
 ## 0.2.2
 
 The engine inside reads pushes better.

@@ -2,6 +2,11 @@
 
 The engine, its command line, its MCP server and the GitHub action. The editor extension carries the same engine and keeps its own list in `extension/CHANGELOG.md`.
 
+## 0.2.3
+
+- The package carries `mcpName`, and `server.json` describes the MCP server, so the official MCP registry can check that the same owner holds both and list SkeptOpus under `io.github.systasys/skeptopus`.
+- Nothing else changes: the engine, its answers and the editor extension are those of 0.2.2.
+
 ## 0.2.2
 
 - A push is checked on the repository the sentence names. Each GitHub repository named with its branch or its commit (`owner/name`) is a push of its own, read on GitHub's public side, with no login. A private one stays "couldn't look".
