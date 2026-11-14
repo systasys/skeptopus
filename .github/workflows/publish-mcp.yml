@@ -1,0 +1,76 @@
+# Lists SkeptOpus in the official MCP registry, from this repository, with no secret of any kind.
+#
+# Why from here and not from a laptop: the registry grants `io.github.<owner>/*` from the OIDC claim GitHub
+# Actions signs for this repository, so a run started here can publish under `io.github.systasys/`. The
+# interactive `mcp-publisher login github` cannot: its token has no `read:org` scope, so GitHub reports no
+# organisation membership and the registry offers only the person's own namespace. Tried on 14 November 2026
+# and refused with 403, which is what sent this workflow here.
+#
+# The npm package is published on purpose, by hand, from the account that owns the name: nothing here touches
+# npm. This workflow only tells the registry where to find a version that is already out, and the registry
+# checks that claim itself by reading `mcpName` in the published package.json.
+#
+# Started by hand (Actions, "Run workflow"): a listing is a publication, so it stays a deliberate gesture.
+name: Publish to MCP Registry
+
+on:
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # the OIDC claim the registry reads; nothing else is needed
+      contents: read
+    env:
+      MCP_PUBLISHER_VERSION: v1.8.9
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      # The tool is pinned to one release and its signature checked before it runs: a mutable "latest" would
+      # let a future build publish in this name without anyone reading it first.
+      - name: Download and verify mcp-publisher
+        run: |
+          set -euo pipefail
+          os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+          arch="$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
+          archive="mcp-publisher_${os}_${arch}.tar.gz"
+          base_url="https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}"
+
+          curl --fail --location --silent --show-error --output "$archive" "$base_url/$archive"
+          curl --fail --location --silent --show-error --output "$archive.sigstore.json" "$base_url/$archive.sigstore.json"
+          cosign verify-blob \
+            --bundle "$archive.sigstore.json" \
+            --certificate-identity "https://github.com/modelcontextprotocol/registry/.github/workflows/release.yml@refs/tags/${MCP_PUBLISHER_VERSION}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$archive"
+          tar xzf "$archive" mcp-publisher
+          rm -f "$archive" "$archive.sigstore.json"
+
+      # Reads server.json and says what the registry would refuse, before anything is sent.
+      - name: Check server.json
+        run: ./mcp-publisher validate
+
+      - name: Authenticate to MCP Registry
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish server to MCP Registry
+        run: ./mcp-publisher publish
+
+      # The entry is read back from the registry's public side: a command that exits 0 is not a listing.
+      - name: Read the entry back
+        run: |
+          set -euo pipefail
+          name="$(jq -r .name server.json)"
+          version="$(jq -r .version server.json)"
+          curl --fail --location --silent --show-error \
+            "https://registry.modelcontextprotocol.io/v0/servers?search=${name}" > entry.json
+          jq -e --arg n "$name" --arg v "$version" \
+            'any(.servers[]?; .name == $n and .version == $v)' entry.json > /dev/null
+          echo "$name $version is listed:"
+          jq --arg n "$name" '[.servers[]? | select(.name == $n)]' entry.json
