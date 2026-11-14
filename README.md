@@ -37,6 +37,8 @@ SkeptOpus · [ CONTRADICTED ]
 
 That is a real run, on a small repository made for the demonstration. The page said to be live does not exist. The commit exists, so it is seen. The push never happened. The tests fail when they are run again, twice, and the failing one is named.
 
+The command above is the one that produced that output, from a clone of this repository. You do not need a clone: after `npx skeptopus install`, the same check reads `npx skeptopus check --message "..."`.
+
 ## Why it exists
 
 On 12 November 2026, the AI building SkeptOpus told its author "all tests pass". Twice. SkeptOpus ran them: they failed. A test depended on the folder it was started from. SkeptOpus was right, and the AI was not.
