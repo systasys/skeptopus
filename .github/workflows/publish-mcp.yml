@@ -63,6 +63,9 @@ jobs:
         run: ./mcp-publisher publish
 
       # The entry is read back from the registry's public side: a command that exits 0 is not a listing.
+      # Each result nests the server under a `server` key, beside the registry's own `_meta`. Read against the
+      # live answer on 14 November 2026, after a first version of this step read `.servers[].name` and failed
+      # on a listing that had in fact worked. A check that cries wolf is worse than no check.
       - name: Read the entry back
         run: |
           set -euo pipefail
@@ -71,6 +74,9 @@ jobs:
           curl --fail --location --silent --show-error \
             "https://registry.modelcontextprotocol.io/v0/servers?search=${name}" > entry.json
           jq -e --arg n "$name" --arg v "$version" \
-            'any(.servers[]?; .name == $n and .version == $v)' entry.json > /dev/null
-          echo "$name $version is listed:"
-          jq --arg n "$name" '[.servers[]? | select(.name == $n)]' entry.json
+            'any(.servers[]?.server; .name == $n and .version == $v)' entry.json > /dev/null
+          jq -e --arg n "$name" \
+            'any(.servers[]?; .server.name == $n and ._meta["io.modelcontextprotocol.registry/official"].status == "active")' \
+            entry.json > /dev/null
+          echo "$name $version is listed and active:"
+          jq --arg n "$name" '[.servers[]? | select(.server.name == $n)]' entry.json
