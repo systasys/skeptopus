@@ -2,6 +2,14 @@
 
 The engine, its command line, its MCP server and the GitHub action. The editor extension carries the same engine and keeps its own list in `extension/CHANGELOG.md`.
 
+## 0.2.4
+
+Three ways SkeptOpus could say something it had not seen. All three are now closed, and it says "couldn't look" instead.
+
+- **A condition is not a claim.** "If the tests pass, I merge" was read as a claim that they pass, in English and in French, and in the present tense only: the future already said nothing. On a machine with a test command declared, SkeptOpus then ran the suite and could answer "contradicted" to an agent that had promised nothing. It now reports nothing on a condition.
+- **A test run that cannot be tied to the claim is not proof of it.** When the folder the command runs in is neither the one the claim is about nor around it, the answer is "couldn't look", and names both folders so the setting can be repaired. A subfolder or a worktree of that folder is the same project and still counts.
+- **The number of tests is read from more runners.** It was read in Node's shape only, so for a Python, Go or Rust project the guard added on 12 November could never bite: a claim of 40 was called seen by a suite of 133 that printed its total another way. `unittest`, `pytest`, `jest`, `vitest`, `cargo` and `go` are read too. A runner whose count stays unreadable is not contradicted for it, and no number is invented.
+
 ## 0.2.3
 
 - The package carries `mcpName`, and `server.json` describes the MCP server, so the official MCP registry can check that the same owner holds both and list SkeptOpus under `io.github.systasys/skeptopus`.

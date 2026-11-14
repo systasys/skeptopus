@@ -1,5 +1,13 @@
 # What changed
 
+## 0.2.4
+
+The engine inside says "couldn't look" where it used to answer on something it had not seen.
+
+- "If the tests pass, I merge" is a condition, not a claim. It used to be read as one, and could end in "contradicted" against an agent that had promised nothing.
+- A test run in a folder that has nothing to do with the claim no longer proves it. Both folders are named, so the setting can be repaired.
+- The number of tests is read from pytest, unittest, jest, vitest, cargo and go as well, not only from Node.
+
 ## 0.2.3
 
 Nothing changes for you: the extension and its engine ship as one version, and this one went out so the engine's npm package could be listed in the official MCP registry.

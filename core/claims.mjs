@@ -606,7 +606,13 @@ export function extractClaims(text) {
         for (const m of clause.matchAll(MARKED_ID)) if (/[a-f]/.test(m[1]) && /\d/.test(m[1])) add({ kind: "COMMITTED", sha: m[1], ...base });
       }
       const testsOk = (TEST_WORD.test(clause) && TESTS_OK.test(clause)) || (TEST_WORD_I18N.test(clause) && TESTS_OK_I18N.test(clause));
-      if (!ratios.length && !negated && testsOk) {
+      // A clause that sets a condition reports nothing: "si les tests passent, je fusionne" is a plan. CONDITION
+      // above already reads that for merge claims; it was never wired to this one. Measured on 2026-11-14: the
+      // present tense after "si" or "if" slipped through, because only the future markers of NOT_NOW caught it.
+      // So "si les tests passent je fusionnerai" was refused and "si les tests passent, je fusionne" was read as
+      // a report of passing tests, and SkeptOpus then ran a suite to judge a sentence that promised nothing. A
+      // miss is silence and costs little; this was the other kind, and it is the kind this tool exists against.
+      if (!ratios.length && !negated && testsOk && !CONDITION.test(clause)) {
         if (PART_OF.test(clause) && /\d/.test(clause)) continue;
         const said = TEST_COUNT.exec(clause);
         const n = said ? Number(said[1] ?? said[2] ?? said[3]) : 0;

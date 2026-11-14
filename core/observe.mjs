@@ -382,11 +382,51 @@ function failedNames(ran) {
   return [...new Set(names)].slice(0, 3).join(" ; ").slice(0, 200);
 }
 
+
+/** The same folder, or inside it. Paths, case-insensitively on Windows: a run elsewhere is not this one. */
+const within = (inner, outer) => {
+  if (!inner || !outer) return false;
+  const a = resolve(inner);
+  const b = resolve(outer);
+  const [x, y] = process.platform === "win32" ? [a.toLowerCase(), b.toLowerCase()] : [a, b];
+  return x === y || x.startsWith(y.endsWith(sep) ? y : y + sep);
+};
+
+// How many tests a run says passed, in the shapes real runners print. Node's own runner was the only one read
+// until 2026-11-14, so the count guard below could not fire for a Python, Go or Rust project: a claim of "40
+// tests" was called seen by a suite of 133 that printed its total in another shape. null means no count could
+// be read, never zero.
+const COUNTS = [
+  /(?:^|\n)\D{0,3}pass\s+(\d+)/i, //                         node --test: "ℹ pass 133"
+  /(?:^|\n)Ran\s+(\d+)\s+tests?\b/i, //                      python -m unittest: "Ran 133 tests in 1.2s"
+  /\b(\d+)\s+passed\b/i, //                                  pytest, jest, vitest: "133 passed"
+  /test result:\s*ok\.\s*(\d+)\s+passed/i, //                cargo test
+  /(?:^|\n)ok\s+\S+\s+[\d.]+s\b[\s\S]*?(\d+)\s+tests?\b/i, // go test -v summaries that print a total
+];
+/** The number of tests a run says passed, or null when no runner shape says it. */
+export const passedCount = (out) => {
+  for (const shape of COUNTS) {
+    const m = shape.exec(String(out ?? ""));
+    if (m) return Number(m[1]);
+  }
+  return null;
+};
+
 async function testsPass(claim, ctx) {
   // SkeptOpus only runs a command the USER declared, as an argument list, never a shell string.
   const command = ctx.config?.test;
   if (!Array.isArray(command) || !command.length || !command.every((part) => typeof part === "string"))
     return result("COULD_NOT_LOOK", "NO_TEST_COMMAND_DECLARED");
+  // A command declared to run somewhere else tests another project, so it says nothing about this claim.
+  // Found on a real machine on 2026-11-14: `test` and `testCwd` were declared once, globally, and testCwd
+  // named a project that had since been renamed. Every "the tests pass", from any folder and any tool, was
+  // answered by running that one old suite. The count below caught it only when both the claim and the run
+  // printed a number; with no number on either side it read "seen". A run that cannot be tied to the claim
+  // is not proof of it: say so, and name both folders so the user can fix the setting.
+  const where = ctx.config.testCwd ?? ctx.config.cwd ?? null;
+  const here = ctx.roots?.[0] ?? null;
+  if (where && here && !within(where, here) && !within(here, where))
+    return result("COULD_NOT_LOOK", "TESTS_RUN_IN_ANOTHER_FOLDER", { command: command.join(" "), ranIn: where, claimedIn: here });
   // One real run per check, however many sentences talk about the tests.
   ctx.memo.tests ??= (async () => {
     const started = Date.now();
@@ -412,10 +452,10 @@ async function testsPass(claim, ctx) {
   // The declared tests pass, but they are not the number the agent spoke of: it may have run other tests (another
   // project's, a browser suite). Found on 2026-11-12: 4 answers out of 60 said "seen" for tests SkeptOpus had not run.
   // Passing tests that are not the ones claimed prove nothing about the claim: could not look, and both numbers are told.
-  const pass = /(?:^|\n)\D{0,3}pass\s+(\d+)/i.exec(ran.stdout);
-  if (claim.total && pass && Number(pass[1]) !== claim.total)
-    return result("COULD_NOT_LOOK", "TESTS_PASS_NOW_BUT_COUNT_DIFFERS", { ...facts, passedNow: Number(pass[1]), claimed: claim.total, check: pass[1] + " ≠ " + claim.total });
-  return result("SEEN", "TESTS_PASS_NOW", { ...facts, passedNow: pass ? Number(pass[1]) : null });
+  const passed = passedCount(ran.stdout);
+  if (claim.total && passed !== null && passed !== claim.total)
+    return result("COULD_NOT_LOOK", "TESTS_PASS_NOW_BUT_COUNT_DIFFERS", { ...facts, passedNow: passed, claimed: claim.total, check: passed + " ≠ " + claim.total });
+  return result("SEEN", "TESTS_PASS_NOW", { ...facts, passedNow: passed });
 }
 
 const flat = (s) => String(s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();

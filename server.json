@@ -3,7 +3,7 @@
   "name": "io.github.systasys/skeptopus",
   "title": "SkeptOpus",
   "description": "Your AI says it's done. SkeptOpus goes and looks: commits, pushes, tests, files, deploys.",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "websiteUrl": "https://github.com/systasys/skeptopus#readme",
   "repository": {
     "url": "https://github.com/systasys/skeptopus",
@@ -14,7 +14,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "skeptopus",
-      "version": "0.2.3",
+      "version": "0.2.4",
       "transport": {
         "type": "stdio"
       },

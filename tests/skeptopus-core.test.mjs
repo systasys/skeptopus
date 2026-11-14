@@ -14,6 +14,43 @@ import { TEST_ROOT, rootFrom, scratch } from "./tmp.mjs";
 
 const kinds = (text) => extractClaims(text).map((c) => (c.negated ? "!" : "") + c.kind + (c.path ? ":" + c.path : c.sha ? ":" + c.sha : c.pr ? ":" + c.pr : c.id ? ":" + c.id : c.name ? ":" + c.name + (c.private ? ":private" : "") : c.text ? ":" + c.text : c.total ? ":" + c.passed + "/" + c.total : ""));
 
+test("claims: a condition on the tests reports nothing, in the present tense too", () => {
+  // Measured on 2026-11-14. CONDITION already refused "si la demande est fusionnée" for merge claims, but it was
+  // never wired to this one. Only the future markers of NOT_NOW caught a plan, so "si les tests passent je
+  // fusionnerai" was refused while "si les tests passent, je fusionne" was read as a report of passing tests.
+  // SkeptOpus then ran a suite to judge a sentence that promised nothing, and could contradict an agent who had
+  // claimed nothing. A miss is silence and costs little; this was the other kind.
+  for (const text of [
+    "Si les tests passent, je fusionne.",
+    "If all tests pass, I merge.",
+    "Je fusionne si les tests passent.",
+    "Si 94/94 des tests passent, je fusionne.",
+    "Si les tests passent je fusionnerai.",
+    "If the tests pass, I will merge.",
+    "Dès que les tests passent, je fusionne.",
+    "Il faut que les tests passent avant de fusionner.",
+  ])
+    assert.deepEqual(kinds(text), [], text);
+  // And the other direction, which is the one a narrowing change breaks: these must still be read.
+  for (const text of [
+    "All tests pass.",
+    "All 164 tests pass.",
+    "The test suite passes.",
+    "Done. 164/164 tests passing.",
+    "Tous les tests passent.",
+    "Les 164 tests passent.",
+    "La suite de tests passe.",
+    "Los 40 tests pasan.",
+  ])
+    assert.ok(
+      kinds(text).some((k) => k.startsWith("TESTS_PASS")),
+      text,
+    );
+  // A path in the sentence does not swallow the claim. "corrigé" is no verb of writing, so the file itself
+  // is not claimed: that is the module's own reading, and this witness holds it rather than my guess at it.
+  assert.deepEqual(kinds("J'ai corrigé `core/observe.mjs` et les tests passent."), ["TESTS_PASS"]);
+});
+
 test("claims: plain English and plain French say the same things", () => {
   assert.deepEqual(kinds("I created `src/app.ts`. Committed abc1234 and pushed. All tests pass."), ["FILE_WRITTEN:src/app.ts", "COMMITTED:abc1234", "PUSHED", "TESTS_PASS"]);
   assert.deepEqual(kinds("J'ai créé `src/app.ts`. Commit local `abc1234`. Les tests passent."), ["FILE_WRITTEN:src/app.ts", "COMMITTED:abc1234", "TESTS_PASS"]);
@@ -360,6 +397,59 @@ test("look: declared tests that pass, but not as many as announced, may be other
   assert.deepEqual(await look("133 tests passent.", ctx()), ["PROVEN:TESTS_PASS_NOW"]);
   assert.deepEqual(await look("Tests : 133/133.", ctx()), ["PROVEN:TESTS_PASS_NOW"]);
   assert.deepEqual(await look("Les tests passent.", ctx()), ["PROVEN:TESTS_PASS_NOW"]);
+});
+
+test("look: a test command declared to run in another project says nothing about this session", async () => {
+  // Found on a real machine on 2026-11-14. The settings held one global `test` and a `testCwd` naming a
+  // project renamed weeks before, so every "the tests pass", from any folder and any tool, was answered
+  // by running that one old suite. The count guard below caught it only when the claim and the run both printed
+  // a number. With no number on either side, SkeptOpus said "seen" about a suite it had never been asked about.
+  const here = scratch("skeptopus-here-");
+  const elsewhere = scratch("skeptopus-elsewhere-");
+  const printer = join(elsewhere, "p.mjs");
+  writeFileSync(printer, 'console.log("\u2139 pass 133");');
+  const apart = { roots: [here], config: { test: [process.execPath, printer], testCwd: elsewhere } };
+  assert.deepEqual(await look("Les tests passent.", apart), ["COULD_NOT_CHECK:TESTS_RUN_IN_ANOTHER_FOLDER"]);
+  assert.deepEqual(await look("133 tests passent.", apart), ["COULD_NOT_CHECK:TESTS_RUN_IN_ANOTHER_FOLDER"]);
+  const told = (await check("Les tests passent.", apart)).rows[0].facts;
+  assert.equal(told.ranIn, elsewhere, "the folder the command runs in is named");
+  assert.equal(told.claimedIn, here, "and the folder the claim is about, so the setting can be fixed");
+  // The same command, declared where the session actually works, is the honest case and stays proven.
+  const same = { roots: [elsewhere], config: { test: [process.execPath, printer], testCwd: elsewhere } };
+  assert.deepEqual(await look("133 tests passent.", same), ["PROVEN:TESTS_PASS_NOW"]);
+  // A folder inside the one the command runs in is the same project: a worktree, a package, a subfolder.
+  const inside = join(elsewhere, "pkg");
+  mkdirSync(inside, { recursive: true });
+  assert.deepEqual(await look("133 tests passent.", { roots: [inside], config: { test: [process.execPath, printer], testCwd: elsewhere } }), ["PROVEN:TESTS_PASS_NOW"]);
+});
+
+test("look: the count is read from the shapes pytest, unittest, jest and cargo print, not only Node's", async () => {
+  // Until 2026-11-14 only `node --test`'s "pass N" was read, so for a Python, Go or Rust project the count
+  // guard could never fire: a claim of 40 was called seen by a suite of 133 that printed its total otherwise.
+  const shapes = [
+    ["\u2139 pass 133", "node --test"],
+    ["Ran 133 tests in 1.204s\n\nOK", "python -m unittest"],
+    ["=== 133 passed, 2 skipped in 1.20s ===", "pytest"],
+    ["Tests:       133 passed, 133 total", "jest"],
+    ["test result: ok. 133 passed; 0 failed", "cargo test"],
+  ];
+  for (const [out, runner] of shapes) {
+    const dir = scratch("skeptopus-shape-");
+    const printer = join(dir, "p.mjs");
+    writeFileSync(printer, "console.log(" + JSON.stringify(out) + ");");
+    const ctx = () => ({ roots: [dir], config: { test: [process.execPath, printer] } });
+    const other = await check("Ce que la session rapporte : 40 tests verts en local.", ctx());
+    assert.deepEqual(other.rows.map((r) => r.verdict + ":" + r.why), ["COULD_NOT_CHECK:TESTS_PASS_NOW_BUT_COUNT_DIFFERS"], runner);
+    assert.equal(other.rows[0].facts.check, "133 \u2260 40", runner + ": both numbers are told");
+    assert.deepEqual(await look("133 tests passent.", ctx()), ["PROVEN:TESTS_PASS_NOW"], runner);
+  }
+  // A runner whose count cannot be read is not turned into a contradiction: the user's own command passed.
+  const quiet = scratch("skeptopus-quiet-");
+  const mute = join(quiet, "p.mjs");
+  writeFileSync(mute, "process.exit(0);");
+  const run = await check("Ce que la session rapporte : 40 tests verts en local.", { roots: [quiet], config: { test: [process.execPath, mute] } });
+  assert.deepEqual(run.rows.map((r) => r.verdict + ":" + r.why), ["PROVEN:TESTS_PASS_NOW"], "no count read, nothing contradicted");
+  assert.equal(run.rows[0].facts.passedNow, null, "and no number is invented");
 });
 
 test("settings: lists add up, and the user's own file wins over the project's for single values", async () => {
