@@ -26,7 +26,7 @@ exports.run = async function run() {
   const seen = { editor: vscode.env.appName, editorVersion: vscode.version, node: process.versions.node, steps: [] };
   const step = (name, extra = {}) => seen.steps.push({ name, ...extra });
   try {
-    const extension = vscode.extensions.getExtension("skeptopus.skeptopus");
+    const extension = vscode.extensions.getExtension("systasys.skeptopus");
     assert.ok(extension, "the editor knows the extension");
     const api = await extension.activate();
     await api.ready;

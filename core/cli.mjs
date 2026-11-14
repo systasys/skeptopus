@@ -11,7 +11,7 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { appendFileSync, copyFileSync, createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve, win32 } from "node:path";
+import { delimiter, dirname, join, resolve, win32 } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createInterface } from "node:readline";
 
@@ -313,7 +313,8 @@ async function main() {
   }
   if (mode === "mcp") {
     // The AI asks SkeptOpus itself, before it tells the human "done". Spoken on stdin and stdout until the tool closes it.
-    await serve(mcpEngine(process.cwd()));
+    const start = mcpFolder();
+    await serve(mcpEngine(start.cwd, { from: start.from }));
     return;
   }
   if (mode === "replay") {
@@ -927,12 +928,39 @@ const ADVICE = {
   CONTRADICTED: "Something you claim is false right now. Fix it before you say it, or tell the user what is actually true.",
   COULD_NOT_CHECK: "Some claims could not be checked here. Say they are not verified, or show the proof yourself.",
 };
+/**
+ * The folder an MCP call looks at when the AI does not name one. Editors do not all start their servers in the open
+ * project: Cursor (3.30, read on 2026-11-13) starts them in the user's home folder, and says the project in
+ * WORKSPACE_FOLDER_PATHS when it knows it (empty on a server shared by several windows). The first such folder that
+ * exists wins; then CLAUDE_PROJECT_DIR if it exists; otherwise the folder this server was started in. `from` says
+ * which, so an answer can tell the AI to pass `cwd` when the guess was only the start folder. A `cwd` passed by a call
+ * comes before all of these (mcp.mjs).
+ */
+export function mcpFolder(env = process.env, started = process.cwd()) {
+  const isDir = (dir) => {
+    try {
+      return Boolean(dir) && statSync(dir).isDirectory();
+    } catch {
+      return false; // a folder of another machine (a remote window), or gone: not this one
+    }
+  };
+  const listed = typeof env.WORKSPACE_FOLDER_PATHS === "string" ? env.WORKSPACE_FOLDER_PATHS : "";
+  // One folder is the usual case; several are split on the platform's list separator and on commas.
+  for (const one of listed.split(delimiter).flatMap((part) => part.split(","))) {
+    if (isDir(one.trim())) return { cwd: resolve(one.trim()), from: "editor" };
+  }
+  const claude = typeof env.CLAUDE_PROJECT_DIR === "string" ? env.CLAUDE_PROJECT_DIR.trim() : "";
+  if (isDir(claude)) return { cwd: resolve(claude), from: "claude" };
+  return { cwd: started, from: "start" };
+}
+
 /** What the server needs from the engine. Kept here, so the protocol module never reaches into the engine itself. */
-export function mcpEngine(cwd = process.cwd(), { home = homeDir() } = {}) {
+export function mcpEngine(cwd = process.cwd(), { home = homeDir(), from = "start" } = {}) {
   return {
     version: VERSION,
     langs: LANGS,
     cwd,
+    cwdFrom: from,
     async check(message, where, lang) {
       const config = loadConfig(undefined, where) ?? {};
       // A tool call has a clock: tests are given the time the user allows a call (50 s unless set), not five minutes.
@@ -1161,7 +1189,11 @@ export function tell(kind, r, lang = "fr") {
 // ---------- the journal: what SkeptOpus checked, kept where the human can open it ----------
 // The folder of this standalone tool (its journal and settings). It holds no secret. See homeOf() in observe.mjs.
 const homeDir = () => homeOf();
-const target = (c) => c.path ?? c.url ?? c.sha ?? c.id ?? c.name ?? c.text ?? (c.pr ? "#" + c.pr : c.total ? c.passed + "/" + c.total : "");
+// A push names its repository, then its branch and its commit; a comment given without its number names its issue.
+const target = (c) =>
+  (c.kind === "PUSHED" && c.repo ? [c.repo, c.branch, c.sha].filter(Boolean).join(" ") : null) ??
+  (c.kind === "COMMENT_POSTED" && c.repo && c.issue && !c.id ? c.repo + " #" + c.issue : null) ??
+  c.path ?? c.url ?? c.sha ?? c.id ?? c.name ?? c.text ?? (c.pr ? "#" + c.pr : c.total ? c.passed + "/" + c.total : "");
 export function remember(report, meta = {}, refresh = true) {
   const dir = homeDir();
   mkdirSync(dir, { recursive: true });

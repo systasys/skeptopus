@@ -3,12 +3,12 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { basename, delimiter, join, resolve } from "node:path";
 import { test } from "node:test";
 
 import { extractClaims } from "../core/claims.mjs";
 import { attach, castOf, check, clipboard, dayOf, detach, firstForThisTurn, glance, install, journalHtml, nodeForHooks, normalize, openPage, poseOf, render, signalPlan, status, summary, tell, uninstall } from "../core/cli.mjs";
-import { homeOf, observe, overall } from "../core/observe.mjs";
+import { homeOf, observe, overall, run as realRun } from "../core/observe.mjs";
 import { DIR, LANGS, PAGE, WHY, WORDS, say, sourceLabel } from "../core/words.mjs";
 import { TEST_ROOT, rootFrom, scratch } from "./tmp.mjs";
 
@@ -1160,6 +1160,69 @@ test("mcp: the real server, started as a tool starts it, checks a message agains
   assert.equal(existsSync(join(home, "historique.jsonl")), false);
 });
 
+test("mcp: started in the home folder as Cursor starts it, the server looks at the project the editor names", async () => {
+  // Read on 2026-11-13: Cursor starts its servers in the user's home folder (C:\Users\<name>\ on Windows, /home/<name>
+  // over SSH) and names the open project in WORKSPACE_FOLDER_PATHS, empty when one server serves several windows.
+  const { mcpFolder } = await import("../core/cli.mjs");
+  const project = scratch("skeptopus-mcp-project-");
+  const started = scratch("skeptopus-mcp-started-");
+  assert.deepEqual(mcpFolder({ WORKSPACE_FOLDER_PATHS: project }, started), { cwd: resolve(project), from: "editor" });
+  assert.deepEqual(mcpFolder({ WORKSPACE_FOLDER_PATHS: "" }, started), { cwd: started, from: "start" });
+  assert.deepEqual(mcpFolder({}, started), { cwd: started, from: "start" });
+  assert.deepEqual(mcpFolder({ WORKSPACE_FOLDER_PATHS: join(started, "not-here") + "," + project }, started), { cwd: resolve(project), from: "editor" }, "a folder of another machine is skipped");
+  // Several folders: split on the platform's list separator and on commas, the first that exists wins.
+  const second = scratch("skeptopus-mcp-second-");
+  assert.deepEqual(mcpFolder({ WORKSPACE_FOLDER_PATHS: project + delimiter + second }, started), { cwd: resolve(project), from: "editor" });
+  assert.deepEqual(mcpFolder({ WORKSPACE_FOLDER_PATHS: join(started, "gone") + delimiter + second }, started), { cwd: resolve(second), from: "editor" });
+  assert.deepEqual(mcpFolder({ WORKSPACE_FOLDER_PATHS: join(started, "gone") + "," + second + "," + project }, started), { cwd: resolve(second), from: "editor" });
+  // CLAUDE_PROJECT_DIR comes after the editor's folders, and only if it exists.
+  assert.deepEqual(mcpFolder({ CLAUDE_PROJECT_DIR: second }, started), { cwd: resolve(second), from: "claude" });
+  assert.deepEqual(mcpFolder({ WORKSPACE_FOLDER_PATHS: project, CLAUDE_PROJECT_DIR: second }, started), { cwd: resolve(project), from: "editor" });
+  assert.deepEqual(mcpFolder({ CLAUDE_PROJECT_DIR: join(started, "x") }, started), { cwd: started, from: "start" }, "a folder that does not exist is ignored, not followed");
+
+  git(project, "init", "-q");
+  writeFileSync(join(project, "a.txt"), "a");
+  git(project, "add", "a.txt");
+  git(project, "commit", "-q", "-m", "a");
+  const sha = git(project, "rev-parse", "--short", "HEAD");
+  const home = join(started, "skeptopus-home");
+  mkdirSync(home);
+  const call = (env, args = {}) => {
+    const lines = [
+      { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "test", version: "1" } } },
+      { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "check", arguments: { message: "Committed " + sha + ".", ...args } } },
+    ];
+    // The run's own environment must not choose the folder: a Claude Code hook sets CLAUDE_PROJECT_DIR.
+    const clean = { ...process.env };
+    delete clean.WORKSPACE_FOLDER_PATHS;
+    delete clean.CLAUDE_PROJECT_DIR;
+    const ran = spawnSync(process.execPath, [resolve("core", "cli.mjs"), "mcp"], { input: lines.map((l) => JSON.stringify(l)).join("\n") + "\n", encoding: "utf8", cwd: started, env: { ...clean, SKEPTOPUS_HOME: home, ...env }, timeout: 60000 });
+    assert.equal(ran.status, 0, ran.stderr);
+    return ran.stdout.trim().split("\n").map((l) => JSON.parse(l)).find((o) => o.id === 2).result;
+  };
+  // The editor named the project: the commit is seen, though the server was started elsewhere.
+  const named = call({ WORKSPACE_FOLDER_PATHS: project });
+  assert.deepEqual(named.structuredContent.claims.map((c) => c.verdict + ":" + c.why), ["PROVEN:COMMIT_EXISTS"]);
+  assert.equal(named.structuredContent.hint, undefined);
+  // Nothing named: the answer says why nothing was seen, and what to pass.
+  const other0 = scratch("skeptopus-mcp-claude-");
+  const lost = call({});
+  assert.deepEqual(lost.structuredContent.claims.map((c) => c.verdict + ":" + c.why), ["COULD_NOT_CHECK:NO_GIT_REPOSITORY_HERE"]);
+  assert.match(lost.structuredContent.hint, /Call `check` again with `cwd`/);
+  assert.match(lost.content[0].text, /No project folder was given/);
+  assert.match(lost.structuredContent.hint, /\(where this server was started\)/);
+  // A folder taken from CLAUDE_PROJECT_DIR is said to come from there, not from where the server started.
+  const fromClaude = call({ CLAUDE_PROJECT_DIR: other0 });
+  assert.deepEqual(fromClaude.structuredContent.claims.map((c) => c.verdict + ":" + c.why), ["COULD_NOT_CHECK:NO_GIT_REPOSITORY_HERE"]);
+  assert.match(fromClaude.structuredContent.hint, /\(from CLAUDE_PROJECT_DIR\)/);
+  assert.doesNotMatch(fromClaude.structuredContent.hint, /where this server was started/);
+  // A cwd passed by the call wins over the folder the editor names.
+  const other = scratch("skeptopus-mcp-other-");
+  const explicit = call({ WORKSPACE_FOLDER_PATHS: project }, { cwd: other });
+  assert.deepEqual(explicit.structuredContent.claims.map((c) => c.verdict + ":" + c.why), ["COULD_NOT_CHECK:NO_GIT_REPOSITORY_HERE"]);
+  assert.equal(explicit.structuredContent.hint, undefined, "a folder named by the call is not a lost one");
+});
+
 test("mcp: install declares the server to every tool found, keeps their other servers, and takes only its own back", async () => {
   const { register, unregister, registered, stripTomlServer, serverEntry, nodeForServers } = await import("../core/cli.mjs");
   const home = scratch("skeptopus-mcp-install-");
@@ -1356,6 +1419,54 @@ test("deployed: a page said to be live is opened once, like anyone would, and it
   assert.deepEqual(await look(`Deployed: ${at}/`, { roots: [scratch("skeptopus-web-")], config: { webTimeoutMs: 3000 } }), ["COULD_NOT_CHECK:SITE_UNREACHABLE"]);
 });
 
+test("deployed: the command line ends with its own exit code after opening a page", async () => {
+  // Found on 2026-11-13: once fetch() had opened a page, the command line crashed on its way out on Windows with
+  // Node 24 ("Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c"), and a page seen came
+  // back with the exit code of a crash instead of 0. A page is now opened by a request that closes its connection.
+  const { createServer } = await import("node:http");
+  const { spawn } = await import("node:child_process");
+  const server = createServer((req, res) => {
+    res.writeHead(req.url === "/moved" ? 302 : 200, req.url === "/moved" ? { location: "/" } : {});
+    res.end("ok");
+  });
+  await new Promise((done) => server.listen(0, "127.0.0.1", done));
+  const at = "http://127.0.0.1:" + server.address().port;
+  const dir = scratch("skeptopus-web-");
+  const cli = (message) =>
+    new Promise((done) => {
+      const child = spawn(process.execPath, [resolve("core", "cli.mjs"), "check", "--message", message, "--cwd", dir, "--lang", "en"], { env: { ...process.env, SKEPTOPUS_HOME: join(dir, "home") }, windowsHide: true });
+      let out = "";
+      let err = "";
+      child.stdout.on("data", (chunk) => (out += chunk));
+      child.stderr.on("data", (chunk) => (err += chunk));
+      child.on("close", (code) => done({ code, out, err }));
+    });
+  try {
+    for (const message of ["Deployed, live at " + at + "/ now.", "It is live at " + at + "/moved now."]) {
+      const ran = await cli(message);
+      assert.doesNotMatch(ran.err, /Assertion failed/, ran.err);
+      assert.equal(ran.code, 0, "a page seen ends with 0\n" + ran.out + ran.err);
+      assert.match(ran.out, /\[SEEN\]\s+deployed/);
+    }
+    // The crash came with a site on the network only, which this suite never reaches: what is checked here is that the
+    // page is no longer opened with fetch at all.
+    const real = globalThis.fetch;
+    let used = 0;
+    globalThis.fetch = (...args) => {
+      used++;
+      return real(...args);
+    };
+    try {
+      assert.deepEqual(await look("Deployed, live at " + at + "/moved now.", { roots: [dir] }), ["PROVEN:PAGE_ANSWERS"]);
+    } finally {
+      globalThis.fetch = real;
+    }
+    assert.equal(used, 0, "fetch is not used to open a page");
+  } finally {
+    await new Promise((done) => server.close(done));
+  }
+});
+
 test("journal: a file seen at night and changed or deleted since is marked so the morning after", async () => {
   const { freshen } = await import("../core/cli.mjs");
   const at = "2026-11-13T02:07:00.000Z";
@@ -1440,4 +1551,221 @@ test("what the README's real run showed (2026-11-13): an opening 'Done.', the lo
   writeFileSync(runner, "console.log(" + JSON.stringify("✖ the total counts each quantity (1.2ms)\nℹ tests 2\nℹ pass 1\nℹ fail 1\n\n✖ failing tests:\n\ntest at test\\cart.test.mjs:1:1\n✖ the total counts each quantity (1.2ms)") + "); process.exit(1);\n");
   const got = await check("All tests pass.", { roots: [dir], config: { test: [process.execPath, runner], testCwd: dir } });
   assert.deepEqual([got.rows[0].verdict, got.rows[0].facts.check], ["CONTRADICTED", "the total counts each quantity"]);
+});
+
+// ---------- pushes to named repositories, comments on named issues (false alarm of 2026-11-13) ----------
+// A real message of 13/11, its names made neutral. Checked through the MCP tool from a folder that is no repository,
+// with a declared folder that has no remote, it came back CONTRADICTED (NO_REMOTE_CONFIGURED on that folder), while the
+// three pushes were on GitHub at those very commits.
+const NAMED_PUSHES =
+  "Pushed to origin: acme/receipts main is now 5f3c2a91b, acme/site main is now 7b1e4d06a, acme/matchmaker main is now c9a40e7d3. Comment posted on acme/tools issue #128.";
+const NAMED_TIPS = {
+  "acme/receipts": { main: "5f3c2a91b7d04e6a8c1f9b3d2e7a4c6058d1b9e3" },
+  "acme/site": { main: "7b1e4d06a9c35f28e0d4b6a1c3f59e7d2a8b0c64" },
+  "acme/matchmaker": { main: "c9a40e7d3b6f15a2e8d0c4b7f1a39e5d6b2c8f07" },
+};
+/** GitHub's public side, played: tips per repository (missing: private or absent; null: the network is down). Local git stays real. */
+function publicGitHub(tips, calls = []) {
+  return async (cmd, args, options = {}) => {
+    const url = cmd === "git" ? args.find((a) => String(a).startsWith("https://github.com/")) : null;
+    if (!url) return realRun(cmd, args, options);
+    calls.push({ args, env: options.env });
+    const heads = tips[url.slice("https://github.com/".length)];
+    if (heads === undefined) return { ok: false, code: 128, stdout: "", stderr: "fatal: could not read Username for 'https://github.com': terminal prompts disabled" };
+    if (heads === null) return { ok: false, code: 128, stdout: "", stderr: "fatal: unable to access 'https://github.com/x/': Could not resolve host: github.com" };
+    const head = heads.HEAD ?? heads.main;
+    const lines = [...(head ? [head + "\tHEAD"] : []), ...Object.entries(heads).filter(([b]) => b !== "HEAD").map(([b, sha]) => sha + "\trefs/heads/" + b)];
+    return { ok: true, code: 0, stdout: lines.join("\n"), stderr: "" };
+  };
+}
+/** GitHub's public API, played: exact paths (query left aside) to { status, json }, or { throws }. Every request is kept. */
+function publicApi(answers, seen = []) {
+  return async (url, init = {}) => {
+    seen.push({ url, headers: init.headers ?? {} });
+    const answer = answers[url.replace("https://api.github.com/", "").split("?")[0]] ?? { status: 404, json: { message: "Not Found" } };
+    if (answer.throws) throw Object.assign(new TypeError("fetch failed"), { cause: { code: answer.throws } });
+    return { status: answer.status, json: async () => answer.json };
+  };
+}
+
+test("claims: three pushes to three named repositories are three claims, and the comment on a named issue is one (real message, 13/11)", () => {
+  const read = (text) => extractClaims(text).map((c) => [c.negated ? "!" + c.kind : c.kind, c.repo ?? null, c.branch ?? null, c.sha ?? null, c.issue ?? null]);
+  assert.deepEqual(read(NAMED_PUSHES), [
+    ["PUSHED", "acme/receipts", "main", "5f3c2a91b", null],
+    ["PUSHED", "acme/site", "main", "7b1e4d06a", null],
+    ["PUSHED", "acme/matchmaker", "main", "c9a40e7d3", null],
+    ["COMMENT_POSTED", "acme/tools", null, null, 128],
+  ]);
+  // The same pushes written as a list under "Pushed to origin:": one claim per line, and no push without a target.
+  assert.deepEqual(read("Pushed to origin:\n- acme/receipts main → 5f3c2a91b\n- acme/site: 7b1e4d06a\n\nAll good."), [
+    ["PUSHED", "acme/receipts", "main", "5f3c2a91b", null],
+    ["PUSHED", "acme/site", null, "7b1e4d06a", null],
+  ]);
+  // Where the push went, said other ways.
+  assert.deepEqual(read("Poussé sur acme/receipts : main est maintenant à 5f3c2a91b."), [["PUSHED", "acme/receipts", "main", "5f3c2a91b", null]]);
+  assert.deepEqual(read("Pushed to acme/tools (branch claude/x, abc1234def)."), [["PUSHED", "acme/tools", "claude/x", "abc1234def", null]]);
+  assert.deepEqual(read("Pushed to [acme/receipts](https://github.com/acme/receipts) main is now 5f3c2a91b."), [["PUSHED", "acme/receipts", "main", "5f3c2a91b", null]]);
+  assert.deepEqual(read("Pushed fix to acme/receipts."), [["PUSHED", "acme/receipts", null, null, null]]);
+  // A name that only looks like a denial denies nothing.
+  assert.deepEqual(read("Pushed acme/no-regrets main is now abc1234def."), [["PUSHED", "acme/no-regrets", "main", "abc1234def", null]]);
+  // Branch names, folders, dates, a request's link and a repository merely spoken of are not where a push went:
+  // those sentences keep the push with no target they always had.
+  assert.deepEqual(kinds("Pushed `claude/fix-x` to origin."), ["PUSHED"]);
+  assert.deepEqual(kinds("Pushed to origin/main."), ["PUSHED"]);
+  assert.deepEqual(kinds("Pushed feat/login (abc1234) to origin."), ["PUSHED"]);
+  assert.deepEqual(kinds("Pushed abc1234, it fixes the bug reported in acme/other."), ["PUSHED"]);
+  assert.deepEqual(kinds("Pushed on 11/13 at 20:15, commit abc1234."), ["PUSHED", "COMMITTED:abc1234"]);
+  assert.deepEqual(kinds("Pushed and opened https://github.com/o/r/pull/12."), ["PUSHED", "PR_OPENED:12"]);
+  assert.deepEqual(kinds("Pushed to origin: main is now abc1234."), ["PUSHED"]);
+  assert.deepEqual(kinds("Committed abc1234, not pushed."), ["COMMITTED:abc1234", "!PUSHED"]);
+  // Comments on a named issue, and what is not one.
+  assert.deepEqual(read("Commentaire publié sur l'issue #12 de acme/x."), [["COMMENT_POSTED", "acme/x", null, null, 12]]);
+  assert.deepEqual(read("Posted a comment on acme/x#12."), [["COMMENT_POSTED", "acme/x", null, null, 12]]);
+  assert.deepEqual(read("Comment posted on https://github.com/acme/tools/issues/12."), [["COMMENT_POSTED", "acme/tools", null, null, 12]]);
+  assert.deepEqual(kinds("Added comments to the code (fix for acme/x#12)."), []);
+  assert.deepEqual(kinds("No comment posted on acme/x issue #12."), []);
+  assert.deepEqual(kinds("Checkpoint publié sur #120."), []);
+  // A comment given by its own link stays one claim, by its number.
+  assert.deepEqual(kinds("Comment posted on acme/tools issue #12: https://github.com/acme/tools/issues/12#issuecomment-1000007342"), ["COMMENT_POSTED:1000007342"]);
+});
+
+test("look: each named push is read on GitHub's public side, without any login, never judged on a folder the sentence did not name", async () => {
+  const here = scratch("skeptopus-here-"); // the folder the AI worked in is no repository
+  const declared = repo(); // a folder the user declared for another project, with no remote at all
+  const calls = [];
+  const seen = [];
+  const ctx = () => ({ roots: [here, declared], run: publicGitHub(NAMED_TIPS, calls), fetch: publicApi({}, seen) });
+  const report = await check(NAMED_PUSHES, ctx());
+  assert.deepEqual(
+    report.rows.map((r) => r.verdict + ":" + r.why),
+    ["PROVEN:REMOTE_HAS_THIS_COMMIT", "PROVEN:REMOTE_HAS_THIS_COMMIT", "PROVEN:REMOTE_HAS_THIS_COMMIT", "COULD_NOT_CHECK:REPOSITORY_NOT_PUBLIC"],
+  );
+  assert.equal(report.verdict, "COULD_NOT_CHECK");
+  assert.deepEqual(report.rows[0].facts, { repo: "acme/receipts", branch: "main", sha: "5f3c2a91b", remoteSha: "5f3c2a91b7d04e6a8c1f9b3d2e7a4c6058d1b9e3" });
+  // Each repository is asked once, on its public address, with every way to log in turned off; no local folder is asked.
+  assert.deepEqual(calls.map((c) => c.args.find((a) => a.startsWith("https://"))), ["https://github.com/acme/receipts", "https://github.com/acme/site", "https://github.com/acme/matchmaker"]);
+  for (const { args, env } of calls) {
+    for (const off of ["credential.helper=", "core.askPass=", "http.extraHeader=", "protocol.allow=never", "protocol.https.allow=always"]) assert.ok(args.includes(off), off);
+    assert.equal(args.indexOf("ls-remote") > args.lastIndexOf("protocol.https.allow=always"), true, "the settings come before the command");
+    assert.deepEqual([env.GIT_ASKPASS, env.SSH_ASKPASS, env.GCM_INTERACTIVE, env.GIT_TERMINAL_PROMPT], ["", "", "never", "0"]);
+  }
+  // The comment: GitHub's public API, asked with no login, answers 404 for the issue and for the repository.
+  assert.deepEqual(seen.map((s) => s.url.replace("https://api.github.com/", "")), ["repos/acme/tools/issues/128/comments?per_page=100", "repos/acme/tools"]);
+  for (const s of seen) assert.ok(!Object.keys(s.headers).some((h) => /authorization|cookie/i.test(h)), "no login is sent");
+  // Shown with the repository it is about.
+  assert.match(render(report, "fr"), /\[VU\]\s+envoyé \(push\) acme\/receipts main 5f3c2a91b : le dépôt distant a bien cet enregistrement/);
+  assert.match(render(report, "en"), /comment posted acme\/tools #128: GitHub shows nothing of this repository without a login/);
+  // A push with no repository named, from a folder that is no repository: the declared folder is not the one the
+  // claim is about, so nothing is concluded (it was CONTRADICTED, NO_REMOTE_CONFIGURED, until 13/11).
+  assert.deepEqual(await look("Pushed to origin.", ctx()), ["COULD_NOT_CHECK:NO_GIT_REPOSITORY_HERE"]);
+  assert.deepEqual(await look("Nothing was pushed.", ctx()), ["COULD_NOT_CHECK:NO_GIT_REPOSITORY_HERE"]);
+});
+
+test("look: controls that must stay CONTRADICTED, the local repository the AI worked in, named, with no remote", async () => {
+  const here = scratch("skeptopus-here-");
+  const declared = repo();
+  const sha = git(declared, "rev-parse", "--short=9", "HEAD");
+  const run = publicGitHub(NAMED_TIPS);
+  // The AI worked in that folder (the `cwd` it gives), and the sentence names it: it has nowhere to push to.
+  assert.deepEqual(await look("Pushed to origin: `" + basename(declared) + "` main is now " + sha + ".", { roots: [declared], run }), ["CONTRADICTED:NO_REMOTE_CONFIGURED"]);
+  assert.deepEqual(await look("Pushed to origin: main is now " + sha + ".", { roots: [declared], run }), ["CONTRADICTED:NO_REMOTE_CONFIGURED"]);
+  // The same words from a folder that is no repository: the declared folder is only mentioned, it is not where the AI
+  // worked, and a folder mentioned in passing must never take a CONTRADICTED for a push that was not its own.
+  assert.deepEqual(await look("Pushed to origin: `" + basename(declared) + "` main is now " + sha + ".", { roots: [here, declared], run }), ["COULD_NOT_CHECK:NO_GIT_REPOSITORY_HERE"]);
+  assert.deepEqual(await look("Pushed to origin, the source stays in " + declared.replace(/\\/g, "/") + ".", { roots: [here, declared], run }), ["COULD_NOT_CHECK:NO_GIT_REPOSITORY_HERE"]);
+  // "alice/wip" is a branch of the folder at hand, not a repository: read as a push from there, as before.
+  git(declared, "checkout", "-q", "-b", "alice/wip");
+  assert.deepEqual(await look("Pushed alice/wip (abc1234def).", { roots: [declared], run }), ["CONTRADICTED:NO_REMOTE_CONFIGURED"]);
+  // And the real message, from inside that very folder: the three repositories it names are still the ones asked.
+  assert.deepEqual(await look(NAMED_PUSHES, { roots: [declared], run, fetch: publicApi({}) }), ["PROVEN:REMOTE_HAS_THIS_COMMIT", "PROVEN:REMOTE_HAS_THIS_COMMIT", "PROVEN:REMOTE_HAS_THIS_COMMIT", "COULD_NOT_CHECK:REPOSITORY_NOT_PUBLIC"]);
+});
+
+test("look: a named push whose branch moved, is missing, or cannot be read", async () => {
+  const here = scratch("skeptopus-here-");
+  const tips = { "acme/moved": { main: "fedcba9876543210fedcba9876543210fedcba98", dev: "1111111aaaaaaa1111111aaaaaaa1111111aaaaa" }, "acme/down": null };
+  const api = (answers) => ({ roots: [here], run: publicGitHub(tips), fetch: publicApi(answers) });
+  const compare = (state) => ({ "repos/acme/moved/compare/abc1234def...fedcba9876543210fedcba9876543210fedcba98": state });
+  // The branch named is elsewhere now; GitHub says whether it still holds the commit (pushed, then built on).
+  assert.deepEqual(await look("Pushed to acme/moved: main is now abc1234def.", api(compare({ status: 200, json: { status: "ahead" } }))), ["PROVEN:REMOTE_CONTAINS_THIS_COMMIT"]);
+  assert.deepEqual(await look("Pushed to acme/moved: main is now abc1234def.", api(compare({ status: 200, json: { status: "diverged" } }))), ["NOT_PROVEN:BRANCH_DOES_NOT_CONTAIN_THIS_COMMIT"]);
+  assert.deepEqual(await look("Pushed to acme/moved: main is now abc1234def.", api(compare({ throws: "ENOTFOUND" }))), ["COULD_NOT_CHECK:GITHUB_UNREACHABLE"]);
+  // No branch named: any branch at that commit will do, else the default branch must hold it.
+  assert.deepEqual(await look("Pushed 1111111aaaa to acme/moved.", api({})), ["PROVEN:REMOTE_HAS_THIS_COMMIT"]);
+  assert.deepEqual(await look("Pushed abc1234def to acme/moved.", api(compare({ status: 404, json: {} }))), ["NOT_PROVEN:NO_BRANCH_AT_THIS_COMMIT"]);
+  // A branch said, and absent.
+  assert.deepEqual(await look("Pushed to acme/moved: release is now abc1234def.", api({})), ["NOT_PROVEN:BRANCH_ABSENT_ON_REMOTE"]);
+  // No commit said, and no copy of the repository at hand: nothing to compare with.
+  assert.deepEqual(await look("Pushed fix to acme/moved.", api({})), ["COULD_NOT_CHECK:NO_COMMIT_NAMED"]);
+  // The network is down.
+  assert.deepEqual(await look("Pushed to acme/down: main is now abc1234def.", api({})), ["COULD_NOT_CHECK:GITHUB_UNREACHABLE"]);
+  // "n/a", "w/o": a one-letter owner is no repository.
+  assert.deepEqual(kinds("Pushed to origin, n/a for the rest (abc1234def)."), ["PUSHED"]);
+});
+
+test("look: a private repository named is asked through the copy the AI works in, and left unjudged otherwise", async () => {
+  const clone = repo();
+  const head = git(clone, "rev-parse", "HEAD");
+  git(clone, "remote", "add", "origin", "https://github.com/acme/private.git");
+  // The copy's own remote is asked the way a bare "pushed" always was; that answer is played here, the rest is real git.
+  const asked = [];
+  const viaCopy = async (cmd, args, options) => {
+    if (cmd === "git" && args.includes("ls-remote") && args.includes("origin")) return { ok: true, code: 0, stdout: head + "\trefs/heads/main", stderr: "" };
+    if (cmd === "git" && args.some((a) => String(a).startsWith("https://github.com/"))) asked.push(args.find((a) => a.startsWith("https://")));
+    return publicGitHub({})(cmd, args, options);
+  };
+  const said = "Pushed to acme/private: main is now " + head.slice(0, 9) + ".";
+  assert.equal(extractClaims(said)[0].repo, "acme/private", "the repository is named");
+  assert.deepEqual(await look(said, { roots: [clone], run: viaCopy }), ["PROVEN:REMOTE_HAS_THIS_COMMIT"]);
+  assert.deepEqual(asked, ["https://github.com/acme/private"], "its public side was asked first, and did not answer");
+  assert.deepEqual(await look("Pushed fix to acme/private.", { roots: [clone], run: viaCopy }), ["PROVEN:REMOTE_HAS_THIS_COMMIT"]);
+  // From anywhere else, the same private repository cannot be seen without a login: nothing is concluded.
+  assert.deepEqual(await look(said, { roots: [scratch("skeptopus-here-")], run: viaCopy }), ["COULD_NOT_CHECK:REPOSITORY_NOT_PUBLIC"]);
+});
+
+test("look: a comment on a named issue, read on GitHub's public side", async () => {
+  const here = scratch("skeptopus-here-");
+  const said = "Comment posted on acme/tools issue #12.";
+  const comments = (list) => ({ "repos/acme/tools/issues/12/comments": { status: 200, json: list }, "repos/acme/tools/issues/12": { status: 200, json: { number: 12 } }, "repos/acme/tools": { status: 200, json: {} } });
+  const old = { created_at: "2026-11-01T08:00:00Z", html_url: "https://github.com/acme/tools/issues/12#issuecomment-1" };
+  const fresh = { created_at: "2026-11-13T19:14:00Z", html_url: "https://github.com/acme/tools/issues/12#issuecomment-2" };
+  const seen = [];
+  const ask = (answers, extra = {}) => look(said, { roots: [here], fetch: publicApi(answers, seen), ...extra });
+  const start = { sessionStart: "2026-11-13T19:00:00Z" };
+  assert.deepEqual(await ask(comments([old, fresh]), start), ["PROVEN:COMMENT_SINCE_SESSION_START"]);
+  assert.deepEqual(await ask(comments([old]), start), ["NOT_PROVEN:NO_COMMENT_SINCE_SESSION_START"]);
+  assert.ok(seen.some((s) => s.url.includes("since=" + encodeURIComponent("2026-11-13T18:59:58.000Z"))), "only comments since the session began are asked for");
+  // Without the hour the session began, comments already there say nothing about this one.
+  assert.deepEqual(await ask(comments([old])), ["COULD_NOT_CHECK:COMMENT_NOT_IDENTIFIED"]);
+  assert.deepEqual(await ask(comments([])), ["NOT_PROVEN:ISSUE_HAS_NO_COMMENT"]);
+  // A pull request's review comments are not listed there: "none" proves nothing on a request.
+  assert.deepEqual(await ask({ ...comments([]), "repos/acme/tools/issues/12": { status: 200, json: { number: 12, pull_request: {} } } }), ["COULD_NOT_CHECK:COMMENT_NOT_IDENTIFIED"]);
+  // No such issue in a repository anyone can see; a private repository; the network down.
+  assert.deepEqual(await ask({ "repos/acme/tools": { status: 200, json: {} } }), ["NOT_PROVEN:ISSUE_UNKNOWN"]);
+  assert.deepEqual(await ask({}), ["COULD_NOT_CHECK:REPOSITORY_NOT_PUBLIC"]);
+  assert.deepEqual(await ask({ "repos/acme/tools/issues/12/comments": { throws: "ENOTFOUND" } }), ["COULD_NOT_CHECK:GITHUB_UNREACHABLE"]);
+  for (const s of seen) assert.ok(!Object.keys(s.headers).some((h) => /authorization|cookie/i.test(h)), "no login is sent");
+});
+
+test("look: a branch, a flag or code that holds a 'no' does not deny the push (neighbour of the false alarm of 13/11)", async () => {
+  // Found the same evening: with no repository named, "fix-not-found" or "no-cache" made the push read as "did NOT
+  // push", and a push that the remote really holds came back CONTRADICTED (IT_HAPPENED_ANYWAY).
+  assert.deepEqual(kinds("Pushed fix-not-found to origin."), ["PUSHED"]);
+  assert.deepEqual(kinds("Pushed the no-cache branch to origin."), ["PUSHED"]);
+  assert.deepEqual(kinds("Pushed with --no-verify."), ["PUSHED"]);
+  assert.deepEqual(kinds("Pushed `not-ready` to origin."), ["PUSHED"]);
+  assert.deepEqual(kinds("Branche poussée sur origin : no-regrets."), ["PUSHED"]);
+  // What really denies still denies, a compound that carries the push included.
+  assert.deepEqual(kinds("Committed abc1234, not pushed."), ["COMMITTED:abc1234", "!PUSHED"]);
+  assert.deepEqual(kinds("Commit local `cea7c1c`, aucun push."), ["COMMITTED:cea7c1c", "!PUSHED"]);
+  assert.deepEqual(kinds("La branche est non-poussée."), ["!PUSHED"]);
+  assert.deepEqual(kinds("The branch isn't pushed."), ["!PUSHED"]);
+  // The case itself: the remote holds the push, the branch name holds a "not".
+  const dir = repo();
+  const far = scratch("skeptopus-remote-");
+  git(far, "init", "-q", "--bare", "-b", "main");
+  git(dir, "remote", "add", "origin", far);
+  git(dir, "checkout", "-q", "-b", "fix-not-found");
+  git(dir, "push", "-q", "origin", "fix-not-found");
+  assert.deepEqual(await look("Pushed fix-not-found to origin.", { roots: [dir] }), ["PROVEN:REMOTE_HAS_THIS_COMMIT"]);
+  assert.deepEqual(await look("Not pushed.", { roots: [dir] }), ["CONTRADICTED:IT_HAPPENED_ANYWAY:REMOTE_HAS_THIS_COMMIT"], "a real denial is still caught");
 });

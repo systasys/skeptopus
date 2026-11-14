@@ -217,6 +217,206 @@ const REPO_MADE = new RegExp(
 );
 const REPO_NAME = /`([\w.-]+(?:\/[\w.-]+)?)`|\b([\w-]+\/[\w.-]+)\b/;
 const PRIVATE = new RegExp("\\b(prive[es]?|private|privad[oa]s?)\\b|私有|" + arWord("خاص"));
+
+// ---------- where a push went, and where a comment was posted ----------
+// Found on 2026-11-13 on a real message, checked through the MCP tool. Shaped like "Pushed to origin: acme/a main is now
+// 5f3c2a91b, acme/b main is now 7b1e4d06a, acme/c main is now c9a40e7d3. Comment posted on acme/d issue #128.", it was
+// read as ONE push with no target, checked on a local folder the sentence never named (it had no remote), and stamped
+// CONTRADICTED; the comment was not read at all. The three pushes were on GitHub, at those very commits. Now each
+// repository named is a push of its own, checked on that repository, and a comment said to be posted on a named issue
+// is a claim of its own.
+const OWNER = "[A-Za-z0-9][A-Za-z0-9-]{0,38}";
+const REPO_PART = "[A-Za-z0-9._-]{1,100}";
+// "owner/repo", where neither half belongs to a path or a link ("C:/work/x", "github.com/o/r" is read just below).
+const OWNER_REPO = new RegExp("(?<![\\w.\\/\\\\:@#~-])(" + OWNER + ")\\/(" + REPO_PART + ")(?![\\w\\/\\\\-])", "g");
+// A link names its repository too, and what follows may give the commit or the branch.
+const GITHUB_LINK = new RegExp("\\bgithub\\.com\\/(" + OWNER + ")\\/(" + REPO_PART + ")(\\/[^\\s<>\"'`)\\]]*)?", "gi");
+// Words that open a branch name or a folder, not a GitHub account: "claude/fix-x", "feat/login", "origin/main", "src/app".
+const NOT_AN_OWNER = new Set(
+  (
+    "origin upstream refs heads remotes remote tags head feat feature features fix fixes bugfix hotfix release releases chore docs doc " +
+    "refactor test tests ci build perf style wip dev devel develop experiment exp spike topic revert deps dependabot renovate " +
+    "claude codex cursor copilot devin gemini grok jules agent agents bot bots user users src lib libs app apps packages pkg " +
+    "core scripts script public dist tmp temp data assets vendor node_modules config bin out tools and or et ou yes no on off true false"
+  ).split(" "),
+);
+const FILE_LIKE = new RegExp("\\.(?:" + PATH_EXT + ")$", "i");
+const isSha = (s) => /^[0-9a-f]{7,40}$/i.test(s) && /[a-f]/i.test(s) && /\d/.test(s);
+const SHA_ANYCASE = /\b(?=[0-9a-fA-F]*[a-fA-F])(?=[0-9a-fA-F]*[0-9])[0-9a-fA-F]{7,40}\b/g;
+// Where the words about one repository end: a comma, a semicolon, a colon (not the one of "https://"), a bracket, "and".
+const TARGET_CUT = /[,;，；、،؛]|[:：](?!\/\/)|[()（）[\]]|\s(?:but|mais|et|and|pero|sino|then|puis)\s|但是|不过|而且|并且/g;
+const BRANCH = "[A-Za-z0-9_][\\w./-]*";
+const IS_NOW = "(?:is now at|is now|is at|now at|now|at|points to|->|→|=>|=|:|est maintenant à|est maintenant a|est maintenant|est à|est a|pointe sur|esta ahora en|está ahora en|esta en|está en|ahora en|ahora es)";
+// "main is now 5f3c2a91b", "main → 5f3c2a9", "main est maintenant à 5f3c2a91b": the branch, then the commit it points to.
+const BRANCH_THEN_SHA = new RegExp("^[\\s)\\]`'\":]*(" + BRANCH + ")[`'\"]?\\s*" + IS_NOW + "\\s*[`'\"]?([0-9a-fA-F]{7,40})\\b", "i");
+// "owner/repo: 5f3c2a91b", "owner/repo (5f3c2a91b)", "owner/repo 5f3c2a91b": the commit right after the name.
+const SHA_RIGHT_AFTER = new RegExp("^[\\s(\\[`'\"]*(?:" + IS_NOW + "\\s*[`'\"]?)?([0-9a-fA-F]{7,40})\\b", "i");
+const BRANCH_WORD = new RegExp("\\b(?:branch|branche|rama)\\s+[`'\"]?(?:refs\\/heads\\/)?(" + BRANCH + ")", "i");
+const REFS_HEADS = new RegExp("\\brefs\\/heads\\/(" + BRANCH + ")");
+const LONE_BRANCH = /^\s*[`'"]?(main|master|develop|dev|trunk|gh-pages|staging|production)[`'"]?\s*$/i;
+const NOT_A_BRANCH = new Set("is was are now at to on in the a an de du la le les est sur en es esta and et or ou branch branche rama ref head commit version".split(" "));
+// "Pushed to acme/receipts", "poussé sur le dépôt acme/x": the push goes to the repository named right after.
+const PUSHED_TO = /(?:\b(?:to|onto|into|on|sur|vers|dans|a|al|hacia)|à)\s+(?:(?:the|le|la|les|l['’]|el|my|our|mon|notre)\s*)?(?:(?:repo|repository|depot|dépôt|repositorio|remote)\s+)?[`'"[]?\s*$/i;
+// French "poussé" and Arabic "رفعت" count next to a git word, or next to a repository named ("poussé sur acme/x").
+const pushVerb = (c) => PUSH_VERB.test(c) || PUSH_I18N.test(c) || ((PUSH_FR.test(c) || PUSH_LOOSE_AR.test(c)) && (GIT_WORD.test(c) || repositoriesNamed(c).length > 0));
+const trimRef = (s) => String(s).replace(/[.,;:!?]+$/, "");
+// Polarity is judged without the names a sentence carries: "acme/no-regrets", a commit, a path, or a branch the
+// sentence names ("fix-not-found") deny nothing. "non-fusionnée" still denies, and so does "not." at the end.
+const namesOut = (s, names = []) =>
+  names
+    .filter(Boolean)
+    .reduce((t, n) => t.split(n.toLowerCase()).join(" "), s)
+    .replace(/[.!?,;:]+(?=\s|$)/g, " ")
+    .replace(/[A-Za-z0-9_\/.'-]*[\/_.\d][A-Za-z0-9_\/.'-]*/g, " ");
+// Whether a push is denied is read on its own words: a branch, a flag or code holding a "no" ("fix-not-found",
+// "no-cache", "--no-verify", `not-ready`) denies nothing, while a compound that carries the push itself ("non-poussée")
+// still does. Found on 2026-11-13: "Pushed fix-not-found to origin." was read as "did NOT push", and a push the remote
+// really held came back CONTRADICTED.
+const pushWords = (s, names = []) =>
+  namesOut(s.replace(/`[^`]*`/g, " "), names).replace(/[A-Za-z0-9_'-]*-[A-Za-z0-9_'-]*/g, (t) => (/push|pousse|envoye/.test(t) ? t : " "));
+
+/** Every GitHub repository a sentence names, by "owner/repo" or by link, with where it stands in the sentence. */
+function repositoriesNamed(sentence) {
+  const found = [];
+  for (const m of sentence.matchAll(GITHUB_LINK)) {
+    const name = trimRef(m[2]).replace(/\.git$/i, "");
+    const end = m.index + m[0].length - (m[3] ?? "").length - (m[2].length - trimRef(m[2]).length);
+    if (name) found.push({ at: m.index, end, repo: m[1] + "/" + name, rest: m[3] ?? "", link: true });
+  }
+  for (const m of sentence.matchAll(OWNER_REPO)) {
+    if (found.some((f) => m.index < f.end + (f.rest?.length ?? 0) && m.index + m[0].length > f.at)) continue;
+    const owner = m[1];
+    const raw = trimRef(m[2]);
+    const name = raw.replace(/\.git$/i, "");
+    if (owner.length < 2 || !name || NOT_AN_OWNER.has(owner.toLowerCase()) || /^\d+$/.test(owner) || /^\d+$/.test(name) || FILE_LIKE.test(name)) continue;
+    found.push({ at: m.index, end: m.index + owner.length + 1 + raw.length, repo: owner + "/" + name, rest: "", link: false });
+  }
+  return found.sort((a, b) => a.at - b.at);
+}
+/** The same sentence with the repositories named blanked out, so that their names are not read as commits or words. */
+const blank = (sentence, found) => found.reduce((s, f) => s.slice(0, f.at) + " ".repeat(f.end - f.at) + s.slice(f.end), sentence);
+function cutsOf(sentence) {
+  const spans = [];
+  let start = 0;
+  for (const m of sentence.matchAll(TARGET_CUT)) {
+    spans.push([start, m.index]);
+    start = m.index + m[0].length;
+  }
+  spans.push([start, sentence.length]);
+  return spans;
+}
+
+/**
+ * The GitHub repositories a push sentence names, one push each, with the commit and the branch its own words give.
+ * A repository counts as the place pushed to when its own clause gives a commit ("main is now 5f3c2a91b", "@5f3c2a9",
+ * a link to the commit), or when the push goes to it ("pushed to acme/receipts"). Anything else ("see
+ * acme/docs", "the bug reported in acme/other") is a repository spoken of, not where the push went.
+ */
+function pushTargets(sentence) {
+  const found = repositoriesNamed(sentence).filter((f) => !f.link || !f.rest || /^\/?(?:\.git\b|tree\/|commits?\/)/i.test(f.rest) || f.rest === "/");
+  if (!found.length) return [];
+  const cuts = cutsOf(sentence);
+  const masked = blank(sentence, found);
+  const targets = new Map();
+  for (const f of found) {
+    const [from, to] = cuts.find(([a, b]) => f.at >= a && f.at < b) ?? [0, sentence.length];
+    let sha;
+    let branch;
+    if (f.link) {
+      const commit = /^\/commits?\/([0-9a-f]{7,40})/i.exec(f.rest);
+      if (commit && isSha(commit[1])) sha = commit[1].toLowerCase();
+      const tree = /^\/tree\/(\S+)/.exec(f.rest);
+      if (tree) branch = trimRef(tree[1]);
+    }
+    const after = sentence.slice(f.end);
+    const direct = /^[@:]([\w./-]+)/.exec(after);
+    if (direct) {
+      const token = trimRef(direct[1]);
+      if (isSha(token)) sha ??= token.toLowerCase();
+      else if (!NOT_A_BRANCH.has(token.toLowerCase())) branch ??= token;
+    }
+    const then = BRANCH_THEN_SHA.exec(after);
+    if (then && isSha(then[2])) {
+      sha ??= then[2].toLowerCase();
+      const b = trimRef(then[1]);
+      if (!NOT_A_BRANCH.has(b.toLowerCase()) && !isSha(b)) branch ??= b;
+    }
+    const right = SHA_RIGHT_AFTER.exec(after);
+    if (right && isSha(right[1])) sha ??= right[1].toLowerCase();
+    // The commit written in the same clause, nearest to the name: after it first ("acme/x is now at …"), else before.
+    const clause = masked.slice(from, to);
+    if (!sha) {
+      const near = [...clause.matchAll(SHA_ANYCASE)].map((m) => ({ sha: m[0].toLowerCase(), at: from + m.index })).sort((a, b) => (a.at > f.at) === (b.at > f.at) ? Math.abs(a.at - f.at) - Math.abs(b.at - f.at) : a.at > f.at ? -1 : 1);
+      if (near.length) sha = near[0].sha;
+    }
+    if (!branch) {
+      const b = BRANCH_WORD.exec(clause) ?? REFS_HEADS.exec(clause);
+      if (b && !NOT_A_BRANCH.has(trimRef(b[1]).toLowerCase())) branch = trimRef(b[1]);
+    }
+    const said = plain(sentence.slice(from, to));
+    const goesTo = pushVerb(said) && PUSHED_TO.test(sentence.slice(from, f.at));
+    if (!sha && !goesTo && !(f.link && pushVerb(said))) continue;
+    const negated = NEGATION.test(pushWords(plain(masked.slice(from, to)), [branch]));
+    const key = f.repo.toLowerCase();
+    const had = targets.get(key);
+    targets.set(key, { repo: had?.repo ?? f.repo, sha: had?.sha ?? sha, branch: had?.branch ?? branch, negated: had ? had.negated : negated });
+  }
+  const list = [...targets.values()];
+  // One repository only: the commit and the branch may stand anywhere in the sentence ("pushed to acme/x (main, 5f3c2a9)").
+  if (list.length === 1) {
+    const [only] = list;
+    if (!only.sha) {
+      const all = [...new Set([...masked.matchAll(SHA_ANYCASE)].map((m) => m[0].toLowerCase()))];
+      if (all.length === 1) only.sha = all[0];
+    }
+    if (!only.branch) {
+      const b = BRANCH_WORD.exec(masked) ?? REFS_HEADS.exec(masked);
+      const lone = cuts.map(([a, z]) => LONE_BRANCH.exec(masked.slice(a, z))).find(Boolean);
+      if (b && !NOT_A_BRANCH.has(trimRef(b[1]).toLowerCase())) only.branch = trimRef(b[1]);
+      else if (lone) only.branch = lone[1];
+    }
+  }
+  return list.map((t) => ({ repo: t.repo, ...(t.branch ? { branch: t.branch } : {}), ...(t.sha ? { sha: t.sha } : {}), negated: t.negated }));
+}
+
+// "Comment posted on acme/tools issue #128": a comment said to be posted on a named issue, with no
+// link to the comment itself (that one is read above, by its number). Read on the plain sentence.
+const COMMENT_SAID = new RegExp(
+  "\\b(?:comments?|commentaires?|comentarios?)\\b[^.;]{0,40}?\\b(?:posted|published|added|left|written|sent|publie[es]?|poste[es]?|ajoute[es]?|laisse[es]?|depose[es]?|ecrit[es]?|envoye[es]?|publicad[oa]s?|anadid[oa]s?|dejad[oa]s?|escrit[oa]s?)\\b|" +
+    "\\b(?:posted|published|added|left|wrote|publie|poste|ajoute|laisse|depose|ecrit|publique|anadi|deje|escribi)\\b[^.;]{0,24}?\\b(?:comments?|commentaires?|comentarios?)\\b|" +
+    "\\b(?:commented|commente|comente)\\s+(?:on|sur|en|dans)\\b|" +
+    "(?:发布了|发表了|留下了|写了|添加了)[^。；]{0,8}评论|评论已(?:发布|发表)|" +
+    "(?:نشرت|اضفت|تم نشر|تمت اضافه)[^.]{0,20}تعليق",
+);
+// The comment went somewhere named: "on acme/x", "sur l'issue #12", "on #12". "Added comments to the code" did not.
+const COMMENT_WHERE = new RegExp(
+  "\\b(?:on|to|in|onto|sur|dans|en|a|à)\\s+(?:(?:the|l['’]|la|le|el|GitHub)\\s*)?(?:(?:issue|ticket|pr|pull request|demande|discussion)\\s+)?(?:#\\d|n[°o]\\s*\\d|[`'\"]?" + OWNER + "\\/|https?:\\/\\/github\\.com\\/)",
+  "i",
+);
+const ISSUE_LINK = new RegExp("\\bgithub\\.com\\/(" + OWNER + ")\\/(" + REPO_PART + ")\\/(issues|pull)\\/(\\d{1,7})(?!\\d|#issuecomment)", "gi");
+const ISSUE_REF = /\b(issues?|tickets?|pr|pull request|demande(?: de fusion)?|solicitud)\s*(?:n[°o]\s*)?#?\s*(\d{1,7})\b|(?<![\w&\/])#(\d{1,7})\b/gi;
+
+/** The issues a sentence says a comment was posted on, each with its repository. Nothing when either is missing. */
+function commentsOnIssues(sentence, flat) {
+  const said = COMMENT_SAID.exec(flat);
+  // "No comment was posted on …", "aucun commentaire publié": nothing to look for.
+  if (!said || NEGATION.test(namesOut(flat.slice(Math.max(0, said.index - 24), said.index + said[0].length)))) return [];
+  if (!COMMENT_WHERE.test(sentence)) return [];
+  const out = new Map();
+  const put = (repo, issue, pull) => out.set(repo.toLowerCase() + "#" + issue, { repo, issue: Number(issue), ...(pull ? { pull: true } : {}) });
+  for (const m of sentence.matchAll(ISSUE_LINK)) put(m[1] + "/" + trimRef(m[2]), m[4], m[3].toLowerCase() === "pull");
+  if (out.size) return [...out.values()];
+  const named = repositoriesNamed(sentence).filter((f) => !f.link || !f.rest || f.rest === "/");
+  for (const f of named) {
+    const n = /^#(\d{1,7})\b/.exec(sentence.slice(f.end));
+    if (n) put(f.repo, n[1], false);
+  }
+  if (out.size || named.length !== 1) return [...out.values()];
+  const numbers = [...blank(sentence, named).matchAll(ISSUE_REF)].map((m) => ({ n: m[2] ?? m[3], pull: /^(?:pr|pull|demande|solicitud)/i.test(m[1] ?? "") }));
+  const distinct = [...new Set(numbers.map((x) => x.n))];
+  if (distinct.length === 1) put(named[0].repo, distinct[0], numbers.some((x) => x.pull));
+  return [...out.values()];
+}
 // "Deployed, live at https://…": a page someone can open. Read on the plain sentence (no accents), with its address.
 const DEPLOYED = new RegExp(
   "\\b(deployed|redeployed|is live|now live|went live|live at|is up at|up and running at|running at|served at|published (?:to|at|on)|shipped to|available at|" +
@@ -287,16 +487,24 @@ const safeDecode = (s) => {
 };
 
 /**
- * @returns {{kind:string, negated:boolean, sentence:string, path?:string, sha?:string, pr?:number, passed?:number, total?:number}[]}
+ * @returns {{kind:string, negated:boolean, sentence:string, path?:string, sha?:string, pr?:number, passed?:number, total?:number, repo?:string, branch?:string, issue?:number}[]}
  * kinds: FILE_REFERENCED, FILE_WRITTEN, COMMITTED, PUSHED, PR_MERGED, PR_OPENED, TESTS_PASS,
  *        COMMENT_POSTED, REPO_CREATED, MEASURED, VAGUE_DONE
  */
 export function extractClaims(text) {
   const claims = [];
   const seen = new Set();
+  // What makes two claims one. A push to a named repository is that repository (two repositories may hold the same
+  // commit); a comment given without its own number is the issue it was posted on.
+  const identity = (c) =>
+    c.kind === "PUSHED" && c.repo
+      ? c.repo.toLowerCase() + "@" + (c.branch ?? "") + "@" + (c.sha ?? "")
+      : c.kind === "COMMENT_POSTED" && c.repo && c.issue && !c.id
+        ? c.repo.toLowerCase() + "#" + c.issue
+        : (c.path ?? c.url ?? c.sha ?? c.pr ?? c.id ?? c.name ?? c.text ?? c.total ?? "");
   const add = (claim) => {
     const isFile = claim.kind.startsWith("FILE_");
-    const key = [isFile ? "FILE" : claim.kind, claim.negated, claim.path ?? claim.url ?? claim.sha ?? claim.pr ?? claim.id ?? claim.name ?? claim.text ?? claim.total ?? ""].join("|");
+    const key = [isFile ? "FILE" : claim.kind, claim.negated, identity(claim)].join("|");
     if (!seen.has(key)) {
       seen.add(key);
       claims.push(claim);
@@ -306,6 +514,11 @@ export function extractClaims(text) {
     const twin = claims.findIndex((c) => c.kind === "FILE_REFERENCED" && claim.kind === "FILE_WRITTEN" && c.path === claim.path);
     if (twin >= 0) claims[twin] = claim;
   };
+  const pushTo = (t, full) => ({ kind: "PUSHED", repo: t.repo, ...(t.branch ? { branch: t.branch } : {}), ...(t.sha ? { sha: t.sha } : {}), negated: t.negated, sentence: full });
+  // "Pushed to origin:" over a list of repositories and their commits: the list says where the push went, one line each,
+  // and the push with no target that the first line made is dropped.
+  let listHead = null;
+  const dropped = new Set();
   for (const full of sentences(text)) {
     const sentence = full.replace(QUOTED, " ");
     const flat = plain(sentence);
@@ -314,13 +527,21 @@ export function extractClaims(text) {
     if (!later && (WRITE_VERB.test(flat) || WRITE_VERB_I18N.test(flat))) for (const path of [...linked, ...paths(sentence)]) add({ kind: "FILE_WRITTEN", path, negated: false, sentence: full });
     // A link to a local file promises that the file is there, in any sentence that is not a plan.
     if (!later) for (const path of linked) add({ kind: "FILE_REFERENCED", path, negated: false, sentence: full });
-    if (later) continue;
+    if (later) {
+      listHead = null;
+      continue;
+    }
     if (VAGUE.test(flat) || VAGUE_I18N.test(flat)) {
       add({ kind: "VAGUE_DONE", negated: false, sentence: full });
+      listHead = null;
       continue;
     }
     for (const m of full.matchAll(COMMENT_URL)) add({ kind: "COMMENT_POSTED", repo: m[1], issue: Number(m[2]), id: m[3], negated: false, sentence: full });
     for (const m of flat.replace(/https?:\/\/\S+/g, " ").matchAll(COMMENT_ID)) add({ kind: "COMMENT_POSTED", id: m[1], negated: false, sentence: full });
+    for (const c of commentsOnIssues(sentence, flat)) {
+      if (claims.some((x) => x.kind === "COMMENT_POSTED" && x.sentence === full && x.issue === c.issue && String(x.repo).toLowerCase() === c.repo.toLowerCase())) continue;
+      add({ kind: "COMMENT_POSTED", ...c, negated: false, sentence: full });
+    }
     if (REPO_MADE.test(flat)) {
       const name = REPO_NAME.exec(sentence);
       if (name) add({ kind: "REPO_CREATED", name: name[1] ?? name[2], private: PRIVATE.test(flat), negated: false, sentence: full });
@@ -345,12 +566,33 @@ export function extractClaims(text) {
     // Spanish "y" (and) separates too, but only in a sentence that is Spanish: in French "y" is also a pronoun
     // ("le contrôle des tests y passe" was cut in two on 12/11, and its claim lost).
     const spanish = /[¿¡ñÑ]/.test(full) || SPANISH.test(flat);
-    for (const clause of flat.split(spanish ? CLAUSE_ES : CLAUSE)) {
+    const clauses = flat.split(spanish ? CLAUSE_ES : CLAUSE);
+    // Where the push went, when the sentence names it: one push per repository named, not one push with no target.
+    const found = listHead || clauses.some((c) => c && pushVerb(c)) ? pushTargets(sentence) : [];
+    // A branch the sentence names denies nothing either: "acme/x fix-not-found is now 5f3c2a9" is a push.
+    const branches = found.map((t) => t.branch).filter(Boolean);
+    const pushSaid = clauses.some((c) => c && pushVerb(c) && !NEGATION.test(pushWords(c, branches)));
+    const targets = pushSaid ? found : listHead ? found.filter((t) => t.sha) : [];
+    if (listHead) {
+      if (!targets.length) listHead = null;
+      else if (listHead.claim) dropped.add(listHead.claim);
+    }
+    // A line of that list has no verb of its own: its pushes are added here.
+    if (!pushSaid) for (const t of targets) add(pushTo(t, full));
+    let targetsAdded = !pushSaid;
+    for (const clause of clauses) {
       if (!clause) continue;
       const negated = NEGATION.test(clause);
       const base = { negated, sentence: full };
-      const pushed = PUSH_VERB.test(clause) || PUSH_I18N.test(clause) || ((PUSH_FR.test(clause) || PUSH_LOOSE_AR.test(clause)) && GIT_WORD.test(clause));
-      if (pushed || (negated && PUSH_NOUN.test(clause))) add({ kind: "PUSHED", ...base });
+      // A push is denied by its words, not by a branch or a flag it names (see pushWords).
+      const pushDenied = NEGATION.test(pushWords(clause, branches));
+      if (pushVerb(clause) || (pushDenied && PUSH_NOUN.test(clause))) {
+        if (!targets.length) add({ kind: "PUSHED", negated: pushDenied, sentence: full });
+        else if (!targetsAdded) {
+          for (const t of targets) add(pushTo(t, full));
+          targetsAdded = true;
+        }
+      }
       const pr = PR.exec(clause);
       if (pr && (MERGED.test(clause) || (negated && MERGE_NOUN.test(clause)))) add({ kind: "PR_MERGED", pr: Number(pr[1]), ...base });
       else if (pr && OPENED.test(clause)) add({ kind: "PR_OPENED", pr: Number(pr[1]), ...base });
@@ -376,8 +618,10 @@ export function extractClaims(text) {
       if (claims.some((c) => c.pr === ref.pr && c.sentence === full)) continue;
       add({ kind: ref.kind, pr: ref.pr, ...(ref.repo ? { repo: ref.repo } : {}), negated: ref.negated, sentence: full });
     }
+    if (pushSaid && !targets.length && /[:：]\s*$/.test(full)) listHead = { claim: claims.find((c) => c.kind === "PUSHED" && !c.repo && !c.negated && c.sentence === full) ?? null };
   }
+  const kept = claims.filter((c) => !dropped.has(c));
   // "Done." followed by what was done is an opening word, not a vague answer: it is vague only when it is all there is.
   // Found on 2026-11-13 on the run shown in the README: "Done. Committed …, pushed …" listed a vague "done" first.
-  return claims.some((c) => c.kind !== "VAGUE_DONE") ? claims.filter((c) => c.kind !== "VAGUE_DONE") : claims;
+  return kept.some((c) => c.kind !== "VAGUE_DONE") ? kept.filter((c) => c.kind !== "VAGUE_DONE") : kept;
 }

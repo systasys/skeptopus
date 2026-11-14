@@ -6,6 +6,7 @@
   "engines": { "node": ">=18" },
   "scripts": {
     "test": "node --test",
-    "pack:extension": "node scripts/skeptopus-pack-extension.mjs"
+    "pack:extension": "node scripts/skeptopus-pack-extension.mjs",
+    "pack:npm": "node scripts/skeptopus-pack-npm.mjs"
   }
 }

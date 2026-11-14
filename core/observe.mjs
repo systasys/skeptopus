@@ -8,7 +8,9 @@
 //   COULD_NOT_LOOK SkeptOpus could not look. This is never a verdict about the agent.
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { homedir } from "node:os";
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
+import { homedir, tmpdir } from "node:os";
 import { isAbsolute, join, resolve, sep } from "node:path";
 
 export const run = (cmd, args, options = {}) =>
@@ -16,7 +18,7 @@ export const run = (cmd, args, options = {}) =>
     execFile(
       cmd,
       args,
-      { windowsHide: true, timeout: options.timeout ?? 20000, maxBuffer: 8 * 1024 * 1024, cwd: options.cwd, env: { ...process.env, GH_PROMPT_DISABLED: "1", GIT_TERMINAL_PROMPT: "0", NO_COLOR: "1" } },
+      { windowsHide: true, timeout: options.timeout ?? 20000, maxBuffer: 8 * 1024 * 1024, cwd: options.cwd, env: { ...process.env, GH_PROMPT_DISABLED: "1", GIT_TERMINAL_PROMPT: "0", NO_COLOR: "1", ...options.env } },
       (error, stdout, stderr) =>
         done({
           ok: !error,
@@ -102,12 +104,224 @@ async function committed(claim, ctx) {
   return result("SEEN", "HEAD_COMMITTED_AND_TREE_CLEAN", { repo, sha, committedAt });
 }
 
+// ---------- pushes: asked to the repository the sentence names, never to one it does not ----------
+// Found on 2026-11-13: a message naming three GitHub repositories was checked on a folder the user had declared for
+// another project, which has no remote, and stamped CONTRADICTED, while the three pushes were on GitHub. A verdict
+// about a repository nobody named is no verdict about the claim. A push is now judged on the GitHub repository the
+// sentence names, or else on the repository of the folder the agent says it worked in (the `cwd` it gives). The other
+// folders SkeptOpus may look in are never judged for a push, not even when the sentence mentions them: a folder
+// mentioned in passing ("the source stays in …") would be stamped CONTRADICTED for a push that was never its own.
+
+/** The repository of the folder the agent worked in (the first root), if it is one. */
+async function hereRepo(ctx) {
+  if (!ctx.roots?.length) return null;
+  const top = await ctx.run("git", ["-C", ctx.roots[0], "rev-parse", "--show-toplevel"]);
+  return top.ok && top.stdout ? top.stdout : null;
+}
+
+/** The name of the remote of a local repository that is the GitHub repository `full` ("owner/repo"), if any. */
+async function remoteFor(repo, full, ctx) {
+  const got = await ctx.run("git", ["-C", repo, "remote", "-v"]);
+  if (!got.ok) return null;
+  for (const line of got.stdout.split("\n")) {
+    const [name, url] = line.trim().split(/\s+/);
+    const m = /github\.com[:/]+([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/i.exec(url ?? "");
+    if (name && m && m[1].toLowerCase() === full.toLowerCase()) return name;
+  }
+  return null;
+}
+
 async function pushed(claim, ctx) {
-  const list = await repos(ctx);
-  if (!list.length) return result("COULD_NOT_LOOK", "NO_GIT_REPOSITORY_HERE");
-  const repo = list[0];
-  const remotes = await ctx.run("git", ["-C", repo, "remote"]);
-  const remote = remotes.stdout.split("\n").filter(Boolean)[0];
+  if (claim.repo) return pushedToGitHub(claim, ctx);
+  const repo = await hereRepo(ctx);
+  // The folder at hand is no repository and the sentence names none: whichever other folder SkeptOpus may look in, it
+  // is not the one the claim is about. Nothing is concluded.
+  if (!repo) return result("COULD_NOT_LOOK", "NO_GIT_REPOSITORY_HERE");
+  return pushedFrom(repo, ctx);
+}
+
+// ---------- GitHub's public side, read without any login ----------
+// A repository a sentence names is read the way anyone could read it: no token, no stored password, no window asking
+// for one. git forgets every credential helper and every extra header, and speaks plain https only (a rule rewriting
+// github.com to ssh would otherwise lend it the user's key). A private repository then answers like a missing one, and
+// SkeptOpus says it could not look.
+const NO_LOGIN_GIT = ["-c", "credential.helper=", "-c", "core.askPass=", "-c", "http.extraHeader=", "-c", "http.https://github.com/.extraHeader=", "-c", "protocol.allow=never", "-c", "protocol.https.allow=always"];
+const NO_LOGIN_ENV = { GIT_ASKPASS: "", SSH_ASKPASS: "", GCM_INTERACTIVE: "never", GIT_TERMINAL_PROMPT: "0" };
+const NOT_SHOWN = /could not read (?:Username|Password)|terminal prompts disabled|Authentication failed|Repository not found|returned error: 40[134]/i;
+
+/** The tips of the branches of a public GitHub repository, and its default branch (HEAD). */
+async function publicTips(full, ctx) {
+  const key = "tips:" + full.toLowerCase();
+  ctx.memo[key] ??= ctx.run("git", [...NO_LOGIN_GIT, "ls-remote", "https://github.com/" + full, "HEAD", "refs/heads/*"], { timeout: 25000, cwd: tmpdir(), env: NO_LOGIN_ENV });
+  const got = await ctx.memo[key];
+  if (got.missing) return { error: "UNREACHABLE", check: "git not found" };
+  if (got.timedOut) return { error: "UNREACHABLE", check: "timed out" };
+  if (!got.ok) return NOT_SHOWN.test(got.stderr) ? { error: "NOT_PUBLIC" } : { error: "UNREACHABLE", check: (got.stderr.split("\n").filter(Boolean).pop() ?? "").slice(0, 100) || undefined };
+  const heads = new Map();
+  let head = null;
+  for (const line of got.stdout.split("\n")) {
+    const [sha, ref] = line.trim().split(/\s+/);
+    if (!sha || !ref) continue;
+    if (ref === "HEAD") head = sha.toLowerCase();
+    else if (ref.startsWith("refs/heads/")) heads.set(ref.slice("refs/heads/".length), sha.toLowerCase());
+  }
+  return { heads, head };
+}
+
+/**
+ * One GET over http or https, with no connection kept open afterwards: redirects followed (ten at most) within one
+ * time limit, the body read only when wanted. Found on 2026-11-13: on Windows with Node 24, once fetch() had reached a
+ * site on the network (never a local address), the command line crashed on its way out ("Assertion failed:
+ * !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c") and ended with a crash's code instead of the verdict's.
+ * Seen on every check of "deployed, live at https://…", and with fetch only: this request exits cleanly.
+ */
+const codeOf = (error) => String(error?.code ?? error?.name ?? error).slice(0, 60);
+function httpGet(url, { headers = {}, timeoutMs = 10000, follow = false, body = false } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  const hop = (address, hops) =>
+    new Promise((done) => {
+      let settled = false;
+      let timer = null;
+      let req = null;
+      const finish = (answer) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        done(answer);
+      };
+      let target;
+      try {
+        target = new URL(address);
+      } catch {
+        finish({ error: "INVALID_URL" });
+        return;
+      }
+      const send = target.protocol === "https:" ? httpsRequest : target.protocol === "http:" ? httpRequest : null;
+      if (!send) {
+        finish({ error: "UNSUPPORTED_PROTOCOL" });
+        return;
+      }
+      const left = Math.max(1, deadline - Date.now());
+      try {
+        req = send(target, { method: "GET", agent: false, headers }, (res) => {
+          const status = res.statusCode;
+          const location = res.headers.location;
+          if (follow && location && [301, 302, 303, 307, 308].includes(status)) {
+            res.destroy();
+            if (hops >= 10) return finish({ error: "TOO_MANY_REDIRECTS" });
+            let next;
+            try {
+              next = new URL(location, target).href;
+            } catch {
+              return finish({ error: "INVALID_REDIRECT" });
+            }
+            hop(next, hops + 1).then(finish);
+            return;
+          }
+          if (!body) {
+            // Only the answer's status is read: the page itself is left, and its connection closed.
+            res.destroy();
+            return finish({ status, finalUrl: target.href });
+          }
+          let text = "";
+          res.setEncoding("utf8");
+          res.on("data", (chunk) => {
+            if (text.length < 4 * 1024 * 1024) text += chunk;
+          });
+          res.on("end", () => {
+            let json = null;
+            try {
+              json = JSON.parse(text);
+            } catch {
+              json = null; // A body that is not JSON: the status alone is read.
+            }
+            finish({ status, json, finalUrl: target.href });
+          });
+          res.on("error", (error) => finish({ error: codeOf(error) }));
+        });
+      } catch (error) {
+        finish({ error: codeOf(error) });
+        return;
+      }
+      timer = setTimeout(() => req.destroy(Object.assign(new Error("timed out"), { code: "TIMEOUT" })), left);
+      timer.unref?.();
+      req.on("error", (error) => finish({ error: codeOf(error) }));
+      req.end();
+    });
+  return hop(url, 0);
+}
+
+/** One GET on GitHub's public API, without any login. Ten seconds at most; asked once per check. */
+async function githubApi(path, ctx) {
+  const key = "api:" + path;
+  const url = "https://api.github.com/" + path;
+  const headers = { accept: "application/vnd.github+json", "user-agent": "SkeptOpus (it checks what an AI says it did)", "x-github-api-version": "2022-11-28" };
+  const timeoutMs = Number(ctx.config?.webTimeoutMs) > 0 ? Number(ctx.config.webTimeoutMs) : 10000;
+  // A test hands its own fetch; the real request closes its connection (see httpGet).
+  ctx.memo[key] ??= typeof ctx.fetch === "function"
+    ? (async () => {
+        try {
+          const res = await ctx.fetch(url, { method: "GET", headers, signal: AbortSignal.timeout(timeoutMs) });
+          let json = null;
+          try {
+            json = await res.json();
+          } catch {
+            json = null;
+          }
+          return { status: res.status, json };
+        } catch (error) {
+          return { error: String(error?.cause?.code ?? error?.name ?? error).slice(0, 60) };
+        }
+      })()
+    : httpGet(url, { headers, timeoutMs, follow: true, body: true });
+  return ctx.memo[key];
+}
+
+/** A push to a GitHub repository the sentence names: that repository is asked, never a folder nobody named. */
+async function pushedToGitHub(claim, ctx) {
+  const here = await hereRepo(ctx);
+  // "alice/wip" may be a branch of the folder at hand rather than a repository: then it is read as it always was.
+  if (here && (await ctx.run("git", ["-C", here, "rev-parse", "--verify", "--quiet", "refs/heads/" + claim.repo])).ok) return pushedFrom(here, ctx);
+  // The folder at hand may be a copy of that very repository: without a commit named, its own state says what to find.
+  const copy = here ? await remoteFor(here, claim.repo, ctx) : null;
+  if (!claim.sha) return copy ? pushedFrom(here, ctx, copy) : result("COULD_NOT_LOOK", "NO_COMMIT_NAMED", { repo: claim.repo });
+  const tips = await publicTips(claim.repo, ctx);
+  // A private repository answers no one without a login. When the agent works in a copy of it, it is asked the way it
+  // always was, through that copy's own remote; any other private repository is left unjudged.
+  if (tips.error === "NOT_PUBLIC" && copy) return pushedFrom(here, ctx, copy);
+  if (tips.error) return result("COULD_NOT_LOOK", tips.error === "NOT_PUBLIC" ? "REPOSITORY_NOT_PUBLIC" : "GITHUB_UNREACHABLE", { repo: claim.repo, ...(tips.check ? { check: tips.check } : {}) });
+  const sha = claim.sha.toLowerCase();
+  const facts = { repo: claim.repo, ...(claim.branch ? { branch: claim.branch } : {}), sha };
+  if (claim.branch) {
+    const tip = tips.heads.get(claim.branch);
+    if (!tip) return result("NOT_SEEN", "BRANCH_ABSENT_ON_REMOTE", facts);
+    if (tip.startsWith(sha)) return result("SEEN", "REMOTE_HAS_THIS_COMMIT", { ...facts, remoteSha: tip });
+    return containsOnGitHub(claim.repo, sha, tip, { ...facts, remoteSha: tip }, "BRANCH_DOES_NOT_CONTAIN_THIS_COMMIT", ctx);
+  }
+  for (const [branch, tip] of tips.heads) if (tip.startsWith(sha)) return result("SEEN", "REMOTE_HAS_THIS_COMMIT", { ...facts, branch, remoteSha: tip });
+  if (!tips.head) return result("NOT_SEEN", "NO_BRANCH_AT_THIS_COMMIT", facts);
+  return containsOnGitHub(claim.repo, sha, tips.head, { ...facts, remoteSha: tips.head }, "NO_BRANCH_AT_THIS_COMMIT", ctx);
+}
+
+/** The branch is at another commit: GitHub's public side says whether it still holds this one (pushed, then built on). */
+async function containsOnGitHub(full, sha, tip, facts, notWhy, ctx) {
+  const got = await githubApi("repos/" + full + "/compare/" + sha + "..." + tip, ctx);
+  if (got.error) return result("COULD_NOT_LOOK", "GITHUB_UNREACHABLE", { ...facts, check: got.error });
+  if (got.status === 200) {
+    const state = got.json?.status;
+    if (state === "ahead" || state === "identical") return result("SEEN", "REMOTE_CONTAINS_THIS_COMMIT", facts);
+    if (state === "behind" || state === "diverged") return result("NOT_SEEN", notWhy, facts);
+    return result("COULD_NOT_LOOK", "GITHUB_ANSWER_UNREADABLE", facts);
+  }
+  // The repository answered just before: GitHub not knowing the commit there means it is not there.
+  if (got.status === 404) return result("NOT_SEEN", notWhy, facts);
+  return result("COULD_NOT_LOOK", "GITHUB_UNREACHABLE", { ...facts, check: "HTTP " + got.status });
+}
+
+/** A push from a local repository, asked to its remote. */
+async function pushedFrom(repo, ctx, remoteName) {
+  const remotes = remoteName ? null : await ctx.run("git", ["-C", repo, "remote"]);
+  const remote = remoteName ?? remotes.stdout.split("\n").filter(Boolean)[0];
   // "Pushed" with nowhere to push to is not unproven, it is impossible.
   if (!remote) return result("AGAINST", "NO_REMOTE_CONFIGURED", { repo });
   const branch = await ctx.run("git", ["-C", repo, "rev-parse", "--abbrev-ref", "HEAD"]);
@@ -218,8 +432,42 @@ async function repositoriesToAsk(claim, ctx) {
   return list;
 }
 
+/**
+ * "Comment posted on owner/repo issue #N", with no number of the comment's own: GitHub's public side is read, without
+ * any login. A comment is seen only when one was posted since the session began; without that hour, comments already
+ * there say nothing about this one. A private repository answers like a missing one: SkeptOpus could not look.
+ */
+async function commentOnIssue(claim, ctx) {
+  const facts = { repo: claim.repo, issue: claim.issue };
+  const issue = "repos/" + claim.repo + "/issues/" + claim.issue;
+  const start = ctx.sessionStart ? Date.parse(ctx.sessionStart) : NaN;
+  const since = Number.isNaN(start) ? null : new Date(start - 2000).toISOString();
+  const got = await githubApi(issue + "/comments?per_page=100" + (since ? "&since=" + encodeURIComponent(since) : ""), ctx);
+  if (got.error) return result("COULD_NOT_LOOK", "GITHUB_UNREACHABLE", { ...facts, check: got.error });
+  if (got.status === 404) {
+    // A private repository and a missing one both answer 404: "no such issue" needs the repository to be visible.
+    const repo = await githubApi("repos/" + claim.repo, ctx);
+    if (repo.status === 200) return result("NOT_SEEN", "ISSUE_UNKNOWN", facts);
+    if (repo.status === 404) return result("COULD_NOT_LOOK", "REPOSITORY_NOT_PUBLIC", facts);
+    return result("COULD_NOT_LOOK", "GITHUB_UNREACHABLE", { ...facts, check: repo.error ?? "HTTP " + repo.status });
+  }
+  if (got.status !== 200 || !Array.isArray(got.json)) return result("COULD_NOT_LOOK", "GITHUB_UNREACHABLE", { ...facts, check: "HTTP " + got.status });
+  const posted = since ? got.json.filter((c) => Date.parse(c?.created_at) >= Date.parse(since)) : got.json;
+  if (since && posted.length) {
+    const last = posted[posted.length - 1];
+    return result("SEEN", "COMMENT_SINCE_SESSION_START", { ...facts, createdAt: last.created_at ?? null, ...(last.html_url ? { url: last.html_url } : {}) });
+  }
+  if (posted.length) return result("COULD_NOT_LOOK", "COMMENT_NOT_IDENTIFIED", { ...facts, comments: posted.length });
+  // Nothing found. A pull request's review comments are not listed there: only a plain issue can say "none" for sure.
+  const about = await githubApi(issue, ctx);
+  if (about.error || about.status !== 200 || !about.json || typeof about.json !== "object") return result("COULD_NOT_LOOK", "GITHUB_UNREACHABLE", { ...facts, check: about.error ?? "HTTP " + about.status });
+  if (about.json.pull_request || claim.pull) return result("COULD_NOT_LOOK", "COMMENT_NOT_IDENTIFIED", facts);
+  return result("NOT_SEEN", since ? "NO_COMMENT_SINCE_SESSION_START" : "ISSUE_HAS_NO_COMMENT", facts);
+}
+
 /** "I posted comment 123": ask GitHub whether that comment exists, and on the issue that was named. */
 async function commentPosted(claim, ctx) {
+  if (!claim.id && claim.repo && claim.issue) return commentOnIssue(claim, ctx);
   const list = await repositoriesToAsk(claim, ctx);
   if (!list.length) return result("COULD_NOT_LOOK", "NO_REPOSITORY_TO_ASK", { id: claim.id });
   let blind = false;
@@ -316,22 +564,26 @@ async function measured(claim, ctx) {
  */
 async function deployed(claim, ctx) {
   if (ctx.config?.web === false) return result("COULD_NOT_LOOK", "WEB_CHECKS_TURNED_OFF", { url: claim.url });
-  const fetcher = ctx.fetch ?? globalThis.fetch;
-  if (typeof fetcher !== "function") return result("COULD_NOT_LOOK", "NO_WAY_TO_ASK_THE_WEB", { url: claim.url });
   const key = "page:" + claim.url;
-  ctx.memo[key] ??= (async () => {
-    try {
-      const res = await fetcher(claim.url, { method: "GET", redirect: "follow", signal: AbortSignal.timeout(Number(ctx.config?.webTimeoutMs) > 0 ? Number(ctx.config.webTimeoutMs) : 10000), headers: { "user-agent": "SkeptOpus (it checks what an AI says is live)", accept: "text/html,application/json;q=0.9,*/*;q=0.8" } });
-      try {
-        await res.body?.cancel?.();
-      } catch {
-        // The answer's status is all that is read; a body that cannot be dropped changes nothing.
-      }
-      return { status: res.status, finalUrl: res.url };
-    } catch (error) {
-      return { error: String(error?.cause?.code ?? error?.name ?? error).slice(0, 60) };
-    }
-  })();
+  const timeoutMs = Number(ctx.config?.webTimeoutMs) > 0 ? Number(ctx.config.webTimeoutMs) : 10000;
+  const headers = { "user-agent": "SkeptOpus (it checks what an AI says is live)", accept: "text/html,application/json;q=0.9,*/*;q=0.8" };
+  // A test may hand its own fetch. The real look is a request that closes its connection: with fetch, the command
+  // line crashed on its way out (see httpGet).
+  ctx.memo[key] ??= typeof ctx.fetch === "function"
+    ? (async () => {
+        try {
+          const res = await ctx.fetch(claim.url, { method: "GET", redirect: "follow", signal: AbortSignal.timeout(timeoutMs), headers });
+          try {
+            await res.body?.cancel?.();
+          } catch {
+            // The answer's status is all that is read; a body that cannot be dropped changes nothing.
+          }
+          return { status: res.status, finalUrl: res.url };
+        } catch (error) {
+          return { error: String(error?.cause?.code ?? error?.name ?? error).slice(0, 60) };
+        }
+      })()
+    : httpGet(claim.url, { headers, timeoutMs, follow: true });
   const got = await ctx.memo[key];
   if (got.error) return result("COULD_NOT_LOOK", "SITE_UNREACHABLE", { url: claim.url, check: got.error });
   const facts = { url: claim.url, status: got.status, check: "HTTP " + got.status, ...(got.finalUrl && got.finalUrl !== claim.url ? { finalUrl: got.finalUrl } : {}) };

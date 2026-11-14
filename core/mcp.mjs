@@ -22,7 +22,8 @@ export const INSTRUCTIONS =
   "SkeptOpus looks before anyone believes. Before you tell the user that something is done (committed, pushed, merged, " +
   "tests passing, file written, comment posted, repository created, measured), call `check` with the message you are " +
   "about to send. Each claim comes back PROVEN, NOT_PROVEN, CONTRADICTED or COULD_NOT_CHECK, with what was seen. " +
-  "Fix what is CONTRADICTED or NOT_PROVEN, or say plainly that it is not verified. Never present COULD_NOT_CHECK as done.";
+  "Fix what is CONTRADICTED or NOT_PROVEN, or say plainly that it is not verified. Never present COULD_NOT_CHECK as done. " +
+  "Always pass `cwd`, the absolute path of the project you worked in: some editors start this server in the home folder.";
 
 /** The tools, in a fixed order: clients cache the list. */
 export function toolList(langs) {
@@ -39,7 +40,7 @@ export function toolList(langs) {
         type: "object",
         properties: {
           message: { type: "string", description: "The words you are about to say, exactly as the user would read them." },
-          cwd: { type: "string", description: "The folder the work happened in. Defaults to the folder this server was started in." },
+          cwd: { type: "string", description: "Absolute path of the project folder the work happened in. Always pass it: some editors start this server in the home folder, where there is nothing to see." },
           lang: { type: "string", enum: langs, description: "Language of the explanations. Defaults to the user's setting." },
         },
         required: ["message"],
@@ -66,6 +67,7 @@ export function toolList(langs) {
             },
           },
           advice: { type: "string" },
+          hint: { type: "string", description: "Present when nothing could be seen because no project folder was given." },
         },
         required: ["verdict", "claims", "advice"],
       },
@@ -86,7 +88,7 @@ export function toolList(langs) {
         "are declared, which repositories it will ask. A claim it cannot verify comes back COULD_NOT_CHECK. Changes nothing.",
       inputSchema: {
         type: "object",
-        properties: { cwd: { type: "string", description: "The folder to look at. Defaults to the folder this server was started in." } },
+        properties: { cwd: { type: "string", description: "Absolute path of the project folder to look at. Always pass it: some editors start this server in the home folder." } },
         additionalProperties: false,
       },
       annotations: { title: "What SkeptOpus can check here", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -138,8 +140,17 @@ export async function answer(msg, engine, state = {}) {
         if (name === "check") {
           if (typeof args.message !== "string" || !args.message.trim()) return done({ content: text("`message` is empty: pass the words you are about to send to the user."), isError: true });
           if (args.message.length > 200000) return done({ content: text("`message` is longer than 200,000 characters: pass the final answer only."), isError: true });
-          const cwd = typeof args.cwd === "string" && args.cwd.trim() ? resolve(args.cwd) : engine.cwd;
+          const named = typeof args.cwd === "string" && args.cwd.trim();
+          const cwd = named ? resolve(args.cwd) : engine.cwd;
           const out = await engine.check(args.message, cwd, typeof args.lang === "string" ? args.lang : undefined);
+          // Nothing to see because no project was named and the folder was only guessed: say how to fix it, and where the guess came from.
+          const from = engine.cwdFrom ?? "start";
+          const lost = !named && from !== "editor" && (out.structured?.claims ?? []).some((c) => c.why === "NO_GIT_REPOSITORY_HERE");
+          if (lost) {
+            const origin = from === "claude" ? "(from CLAUDE_PROJECT_DIR)" : "(where this server was started)";
+            const hint = "No project folder was given, and " + cwd + " " + origin + " is not one. Call `check` again with `cwd` set to the absolute path of the project you worked in.";
+            return done({ content: text(out.text + "\n\n" + hint), structuredContent: { ...out.structured, hint }, isError: false });
+          }
           return done({ content: text(out.text), structuredContent: out.structured, isError: false });
         }
         if (name === "today") {

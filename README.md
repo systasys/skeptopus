@@ -61,13 +61,13 @@ AI agents are good at work and generous with the word "done". Nobody can reread 
 You need Node.js 18 or later.
 
 ```sh
-git clone https://github.com/systasys/skeptopus
-cd skeptopus
-node core/cli.mjs install --dry-run   # says what it would do, writes nothing
-node core/cli.mjs install             # hooks every AI coding tool it finds
-node core/cli.mjs status
-node core/cli.mjs uninstall           # takes everything back out; your journal stays
+npx skeptopus install --dry-run   # says what it would do, writes nothing
+npx skeptopus install             # hooks every AI coding tool it finds
+npx skeptopus status
+npx skeptopus uninstall           # takes everything back out; your journal stays
 ```
+
+From a clone of this repository, `node core/cli.mjs` does the same as `npx skeptopus`.
 
 One command copies the engine to `~/.skeptopus/app`, hooks every tool it finds, and lets each tool's AI call SkeptOpus itself:
 
@@ -83,7 +83,7 @@ Every settings file it touches is kept as it was, beside it, as `<file>.avant-sk
 
 ## Let your AI ask first
 
-The hook checks what the AI said, after it said it. The MCP server lets the AI check before it speaks. `node core/cli.mjs mcp` speaks the Model Context Protocol on stdin and stdout, in both of its current forms (the 2026-07-28 revision and the earlier handshake ones), with three tools:
+The hook checks what the AI said, after it said it. The MCP server lets the AI check before it speaks. `npx skeptopus mcp` speaks the Model Context Protocol on stdin and stdout, in both of its current forms (the 2026-07-28 revision and the earlier handshake ones), with three tools:
 
 | Tool | What it answers |
 | --- | --- |
@@ -105,7 +105,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
-      - uses: systasys/skeptopus@v0.2.0
+      - uses: systasys/skeptopus@v0.2.2
         with:
           fail-on: contradicted       # or: problems, anything, never
           settings: .github/skeptopus.json
@@ -115,7 +115,7 @@ The answer lands in the run's summary as a table. From the command line, `check`
 
 ## Settings and profiles
 
-Your settings are `~/.skeptopus/config.json`, created once and never overwritten. `node core/cli.mjs config` shows the settings in effect for a folder and where each one comes from.
+Your settings are `~/.skeptopus/config.json`, created once and never overwritten. `npx skeptopus config` shows the settings in effect for a folder and where each one comes from.
 
 | Profile | What changes |
 | --- | --- |
@@ -123,7 +123,7 @@ Your settings are `~/.skeptopus/config.json`, created once and never overwritten
 | `normal` | The default. |
 | `strict` | A "done" that names nothing is refused; tests that pass only on a second run, and a file whose age cannot be compared, no longer count as seen. |
 
-`node core/cli.mjs init` finds how a folder runs its tests, from its own files, and runs nothing. `--apply` keeps it for that folder only, in your file:
+`npx skeptopus init` finds how a folder runs its tests, from its own files, and runs nothing. `--apply` keeps it for that folder only, in your file:
 
 ```json
 {
@@ -158,9 +158,9 @@ It reads claims in English, French, Spanish, Chinese and Arabic. A plan, a quest
 | --- | --- |
 | A file written or pointed to | The file is there, not empty, and not older than the session. |
 | A commit | In the repositories at hand, or on GitHub. |
-| A push | The remote itself is asked. |
+| A push | The remote itself is asked. Each GitHub repository the sentence names (`owner/name` with its branch or its commit) is a push of its own, read on GitHub's public side, with no login. A push that names no repository is judged on the folder the AI worked in, and on no other. |
 | A pull request merged or opened | GitHub is asked, through the `gh` command you already use. |
-| A comment posted, a repository created | GitHub is asked; "private" is checked when it was said. |
+| A comment posted, a repository created | GitHub is asked; "private" is checked when it was said. A comment said to be posted on `owner/name` issue #N, without its own link, is looked for on GitHub's public side. |
 | The tests pass | Your test command is run again; a failure is run twice before anything is called contradicted. |
 | A measurement announced | Redone only the way you declared it. |
 | Deployed, live at an address | The page is opened once, like anyone would: no cookie, no login. |
@@ -170,13 +170,13 @@ The journal page reads in the five languages, shows one character per answer, an
 
 ## Privacy
 
-No server, no account, no telemetry. Everything it keeps stays in `~/.skeptopus`. It uses the network for three things only: your own git remote, GitHub through `gh`, and a page an AI says is live (turn that off with `"web": false`).
+No server, no account, no telemetry. Everything it keeps stays in `~/.skeptopus`. It uses the network for four things only: your own git remote, GitHub through `gh`, GitHub's public side with no login (for a repository or an issue a sentence names), and a page an AI says is live (turn that off with `"web": false`).
 
 ## The extension for VS Code and Cursor
 
 ```sh
-node scripts/skeptopus-pack-extension.mjs        # writes dist/skeptopus-0.2.0.vsix
-code --install-extension dist/skeptopus-0.2.0.vsix
+node scripts/skeptopus-pack-extension.mjs        # writes dist/skeptopus-0.2.2.vsix
+code --install-extension dist/skeptopus-0.2.2.vsix
 ```
 
 The journal in a side panel, the worst answer of the day in the status bar, and "check what I copied". It runs the engine with the editor's own runtime. See `extension/README.md`.

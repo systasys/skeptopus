@@ -1,7 +1,7 @@
 // SkeptOpus in an editor: what can be proved without the editor. The proof inside a real editor is
 // scripts/skeptopus-try-in-editor.mjs, which opens a window and is therefore not part of this run.
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join, resolve, sep } from "node:path";
 import { test } from "node:test";
@@ -9,6 +9,7 @@ import { inflateRawSync } from "node:zlib";
 
 import { glance } from "../core/cli.mjs";
 import { stage, vsix, zip } from "../scripts/skeptopus-pack-extension.mjs";
+import { absolute, stage as stageNpm } from "../scripts/skeptopus-pack-npm.mjs";
 import { scratch } from "./tmp.mjs";
 
 const require = createRequire(import.meta.url);
@@ -133,6 +134,10 @@ test("extension: what it tells the editor about itself holds together", () => {
   assert.equal(manifest.dependencies, undefined);
   assert.equal(manifest.capabilities.untrustedWorkspaces.supported, true);
   assert.equal(manifest.private, true, "nothing publishes it by accident");
+  // In a remote window (SSH, WSL, a container) it runs where the work is, or not at all: never the journal of the
+  // computer in front of you. Found on 13/11: allowed to run on that computer, a remote window showed its journal.
+  assert.deepEqual(manifest.extensionKind, ["workspace"]);
+  assert.equal(manifest.publisher, "systasys");
 });
 
 test("extension: the package carries the engine, opens like any zip, and comes out the same twice", () => {
@@ -145,7 +150,10 @@ test("extension: the package carries the engine, opens like any zip, and comes o
   const description = files["extension.vsixmanifest"].toString("utf8");
   // The version is the extension's own, read from its manifest: a test that fixed it broke at the first new version.
   const version = JSON.parse(readFileSync(resolve("extension", "package.json"), "utf8")).version;
-  assert.ok(description.includes(`<Identity Language="en-US" Id="skeptopus" Version="${version}" Publisher="skeptopus"/>`));
+  assert.ok(description.includes(`<Identity Language="en-US" Id="skeptopus" Version="${version}" Publisher="systasys"/>`));
+  // The stores link back to the code and show the banner's colour.
+  assert.match(description, /<Property Id="Microsoft\.VisualStudio\.Services\.Links\.Source" Value="https:\/\/github\.com\/systasys\/skeptopus"\/>/);
+  assert.match(description, /<Property Id="Microsoft\.VisualStudio\.Services\.Branding\.Color" Value="#121110"\/>/);
   assert.match(description, /<Description xml:space="preserve">Your AI says it's done\. SkeptOpus goes and looks\.<\/Description>/);
   assert.match(description, /<Asset Type="Microsoft\.VisualStudio\.Code\.Manifest" Path="extension\/package\.json"/);
   // Every kind of file inside is declared (the list of kinds itself is not a part of the package).
@@ -164,4 +172,25 @@ test("extension: the package carries the engine, opens like any zip, and comes o
   const round = unzip(zip([["a/é.txt", "héllo ".repeat(200)], ["b.bin", Buffer.from([0, 1, 2, 255])]]));
   assert.equal(round["a/é.txt"].toString("utf8"), "héllo ".repeat(200));
   assert.deepEqual([...round["b.bin"]], [0, 1, 2, 255]);
+});
+
+test("npm: the engine as a package, publishable only on purpose, with a README that works away from the repository", () => {
+  const work = scratch("skeptopus-npm-");
+  const { dir, pkg } = stageNpm(join(work, "package"));
+  const engine = JSON.parse(readFileSync(resolve("core", "package.json"), "utf8"));
+  // The repository's own description stays private: only the one written by the script can go out.
+  assert.equal(engine.private, true);
+  assert.equal(pkg.private, undefined);
+  assert.equal(JSON.parse(readFileSync(join(dir, "package.json"), "utf8")).version, engine.version);
+  assert.equal(pkg.name, "skeptopus");
+  assert.deepEqual(pkg.bin, { skeptopus: "cli.mjs" }, "npx skeptopus runs the engine");
+  assert.ok(readFileSync(join(dir, "cli.mjs"), "utf8").startsWith("#!/usr/bin/env node"), "a command needs its first line on Linux and macOS");
+  for (const f of ["cli.mjs", "claims.mjs", "observe.mjs", "words.mjs", "mcp.mjs", "art/skeptopus.webp", "fonts/inter.woff2", "sounds/contradicted.wav", "README.md", "LICENSE", "NOTICE"]) assert.ok(existsSync(join(dir, f)), f);
+  assert.ok(readFileSync(join(dir, "cli.mjs")).equals(readFileSync(resolve("core", "cli.mjs"))), "the engine goes out byte for byte");
+  // On npm's site no relative address resolves: every picture and link points at the tagged version.
+  const readme = readFileSync(join(dir, "README.md"), "utf8");
+  assert.doesNotMatch(readme, /\b(?:src|srcset|href)="(?![a-z]+:|#)/i);
+  assert.doesNotMatch(readme, /\]\((?![a-z]+:|#)/i);
+  assert.ok(readme.includes(`https://raw.githubusercontent.com/systasys/skeptopus/v${engine.version}/media/banner-dark.png`));
+  assert.equal(absolute('<img src="core/art/x.webp"> [a](LICENSE) [b](https://x.y) <a href="#top">', "1.2.3"), '<img src="https://raw.githubusercontent.com/systasys/skeptopus/v1.2.3/core/art/x.webp"> [a](https://github.com/systasys/skeptopus/blob/v1.2.3/LICENSE) [b](https://x.y) <a href="#top">');
 });

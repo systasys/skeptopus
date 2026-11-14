@@ -66,6 +66,20 @@ export function stage(dir, { withHostTest = false, root = ROOT } = {}) {
 const xml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
 function manifest(pkg, description) {
+  const repo = typeof pkg.repository === "string" ? pkg.repository : pkg.repository?.url;
+  // What a store shows beside the extension: where its code lives, where to ask, and the colour behind its name.
+  const shown = [
+    ["Links.Source", repo],
+    ["Links.Getstarted", repo],
+    ["Links.GitHub", /^https:\/\/github\.com\//.test(repo ?? "") ? repo : null],
+    ["Links.Support", pkg.bugs?.url],
+    ["Links.Learn", pkg.homepage],
+    ["Branding.Color", pkg.galleryBanner?.color],
+    ["Branding.Theme", pkg.galleryBanner?.theme],
+  ]
+    .filter(([, value]) => value)
+    .map(([key, value]) => `\n      <Property Id="Microsoft.VisualStudio.Services.${key}" Value="${xml(value)}"/>`)
+    .join("");
   return `<?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
   <Metadata>
@@ -82,7 +96,7 @@ function manifest(pkg, description) {
       <Property Id="Microsoft.VisualStudio.Code.ExtensionKind" Value="${xml((pkg.extensionKind ?? ["workspace"]).join(","))}"/>
       <Property Id="Microsoft.VisualStudio.Code.LocalizedLanguages" Value=""/>
       <Property Id="Microsoft.VisualStudio.Services.GitHubFlavoredMarkdown" Value="true"/>
-      <Property Id="Microsoft.VisualStudio.Services.Content.Pricing" Value="Free"/>
+      <Property Id="Microsoft.VisualStudio.Services.Content.Pricing" Value="Free"/>${shown}
     </Properties>
     <Icon>extension/${xml(pkg.icon)}</Icon>
   </Metadata>

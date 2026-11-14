@@ -1,6 +1,6 @@
 {
   "name": "skeptopus",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "description": "Your AI says it's done. SkeptOpus goes and looks.",
   "type": "module",
   "bin": { "skeptopus": "cli.mjs" },
