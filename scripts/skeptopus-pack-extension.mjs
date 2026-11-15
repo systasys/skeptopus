@@ -29,7 +29,7 @@ const crc32 =
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 // What the extension is made of. The folder of tests that need a real editor stays out of the package.
 const OWN = ["package.json", "package.nls.json", "package.nls.fr.json", "package.nls.es.json", "package.nls.zh-cn.json", "extension.js", "README.md", "CHANGELOG.md", "lib", "l10n", "media"];
-const ENGINE = ["cli.mjs", "claims.mjs", "observe.mjs", "words.mjs", "mcp.mjs", "package.json", "art", "fonts", "sounds"];
+const ENGINE = ["cli.mjs", "claims.mjs", "observe.mjs", "words.mjs", "mcp.mjs", "filtre.mjs", "vivant.mjs", "package.json", "art", "fonts", "sounds"];
 const TYPES = { ".json": "application/json", ".js": "application/javascript", ".mjs": "application/javascript", ".md": "text/markdown", ".txt": "text/plain", ".png": "image/png", ".svg": "image/svg+xml", ".webp": "image/webp", ".wav": "audio/wav", ".woff": "application/font-woff", ".woff2": "font/woff2", ".vsixmanifest": "text/xml" };
 
 function walk(dir, base = dir) {

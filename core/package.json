@@ -1,10 +1,10 @@
 {
   "name": "skeptopus",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Your AI says it's done. SkeptOpus goes and looks.",
   "type": "module",
   "bin": { "skeptopus": "cli.mjs" },
-  "files": ["cli.mjs", "claims.mjs", "observe.mjs", "words.mjs", "mcp.mjs", "art/", "fonts/", "sounds/"],
+  "files": ["cli.mjs", "claims.mjs", "observe.mjs", "words.mjs", "mcp.mjs", "filtre.mjs", "vivant.mjs", "art/", "fonts/", "sounds/"],
   "engines": { "node": ">=18" },
   "private": true,
   "license": "MIT"

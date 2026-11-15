@@ -17,6 +17,8 @@ import { createInterface } from "node:readline";
 
 import { extractClaims } from "./claims.mjs";
 import { DIR, LANGS, LANG_LABEL, LOCALE, PAGE, WORDS, pickLang, say, sourceLabel } from "./words.mjs";
+import { FILTRE } from "./filtre.mjs";
+import { VIVANT } from "./vivant.mjs";
 import { PROFILES, VERDICT, homeOf, loadConfig, observe, overall, profileOf, rootsOf } from "./observe.mjs";
 import { serve } from "./mcp.mjs";
 
@@ -40,10 +42,20 @@ export function render(report, lang = "en", color = false) {
     const what = (row.claim.negated ? w.not : "") + w.kind[row.claim.kind] + (target(row.claim) ? " " + target(row.claim) : "");
     const label = "[" + w[row.verdict] + "]";
     // The longest label still keeps a space before the claim ("[COULDN'T LOOK]" is fifteen characters).
-    lines.push("  " + paint(row.verdict, label.padEnd(15) + (label.length >= 15 ? " " : ""), color) + what + w.sep + say(lang, row.why) + (row.facts?.check ? w.open + row.facts.check + w.close : ""));
+    lines.push("  " + paint(row.verdict, label.padEnd(15) + (label.length >= 15 ? " " : ""), color) + what + w.sep + say(lang, row.why) + asides(lang, row.facts));
   }
   return lines.join("\n");
 }
+
+/**
+ * What a reason carries in brackets: the name of the check that ran, and the folder a file was found in
+ * when it is not the one the agent worked in. Hiding where it looked is how a badly scoped setting stays
+ * invisible, so wherever a verdict is shown, it is shown here too.
+ */
+export const asides = (lang, facts) => {
+  const w = WORDS[pickLang(lang)];
+  return [facts?.check, facts?.elsewhere ? w.foundIn + " " + facts.elsewhere : null].filter(Boolean).map((t) => w.open + t + w.close).join("");
+};
 
 const SWITCHES = new Set(["--json", "--dry-run", "--no-shortcut", "--open", "--print", "--embedded", "--apply"]);
 function parse(argv) {
@@ -110,7 +122,7 @@ export function asMarkdown(report, lang = "en") {
   lines.push("| | Claim | What SkeptOpus saw |", "| --- | --- | --- |");
   for (const r of report.rows) {
     const what = (r.claim.negated ? w.not : "") + (w.kind[r.claim.kind] ?? r.claim.kind) + (target(r.claim) ? " `" + String(target(r.claim)).replace(/`/g, "'") + "`" : "");
-    lines.push("| " + MARK[r.verdict] + " " + w[r.verdict] + " | " + cell(what) + " | " + cell(say(lang, r.why) + (r.facts?.check ? " (" + r.facts.check + ")" : "")) + " |");
+    lines.push("| " + MARK[r.verdict] + " " + w[r.verdict] + " | " + cell(what) + " | " + cell(say(lang, r.why) + asides(lang, r.facts)) + " |");
   }
   return lines.join("\n");
 }
@@ -124,7 +136,7 @@ export function asJunit(report, lang = "en") {
   const skipped = report.rows.filter((r) => r.verdict === "COULD_NOT_CHECK").length;
   const cases = report.rows.map((r) => {
     const name = (r.claim.negated ? w.not : "") + (w.kind[r.claim.kind] ?? r.claim.kind) + (target(r.claim) ? " " + target(r.claim) : "");
-    const why = say(lang, r.why) + (r.facts?.check ? " (" + r.facts.check + ")" : "");
+    const why = say(lang, r.why) + asides(lang, r.facts);
     const inner = r.verdict === "NOT_PROVEN" || r.verdict === "CONTRADICTED" ? `<failure type="${r.verdict}" message="${xml(why)}"/>` : r.verdict === "COULD_NOT_CHECK" ? `<skipped message="${xml(why)}"/>` : "";
     return `    <testcase classname="skeptopus.${r.claim.kind}" name="${xml(name)}">${inner}</testcase>`;
   });
@@ -1190,7 +1202,7 @@ export function tell(kind, r, lang = "fr") {
 // The folder of this standalone tool (its journal and settings). It holds no secret. See homeOf() in observe.mjs.
 const homeDir = () => homeOf();
 // A push names its repository, then its branch and its commit; a comment given without its number names its issue.
-const target = (c) =>
+export const target = (c) =>
   (c.kind === "PUSHED" && c.repo ? [c.repo, c.branch, c.sha].filter(Boolean).join(" ") : null) ??
   (c.kind === "COMMENT_POSTED" && c.repo && c.issue && !c.id ? c.repo + " #" + c.issue : null) ??
   c.path ?? c.url ?? c.sha ?? c.id ?? c.name ?? c.text ?? (c.pr ? "#" + c.pr : c.total ? c.passed + "/" + c.total : "");
@@ -1213,6 +1225,9 @@ export function remember(report, meta = {}, refresh = true) {
       target: target(r.claim),
       why: r.why,
       note: r.facts?.check ?? null,
+      elsewhere: r.facts?.elsewhere ?? null,
+      // L'adresse de la chose, quand elle a été vue là-bas : la page en fait un lien, et seulement là.
+      url: typeof r.facts?.url === "string" && /^https:\/\//.test(r.facts.url) ? r.facts.url : null,
       said: String(r.claim.sentence ?? "").slice(0, 220),
       // A file seen is kept with the time it carried then: the page can say later that it changed since.
       ...(r.verdict === "PROVEN" && r.facts?.path && r.facts?.modifiedAt ? { path: r.facts.path, mtime: r.facts.modifiedAt } : {}),
@@ -1248,18 +1263,43 @@ const HERO = "skeptopus.webp";
 // A good day, or a day with nothing yet, keeps him as he is. A missing picture keeps him too.
 const POSE = { CONTRADICTED: "skeptopus-contredit.webp", NOT_PROVEN: "skeptopus-refuse.webp", COULD_NOT_CHECK: "skeptopus-paspu.webp" };
 export const poseOf = (worst) => (POSE[worst] && art(POSE[worst]) ? POSE[worst] : HERO);
-// One character per answer: the one who really did it, the two whose proof is missing
-// (not there yet, or "sent" and never arrived), the one the facts contradict, the one nobody could look at.
-// Nothing to check keeps the octopus himself.
-const CAST = { PROVEN: "fourmi.webp", NOT_PROVEN: "albatros.webp", SENT: "pigeon.webp", CONTRADICTED: "grenouille.webp", COULD_NOT_CHECK: "taupe.webp" };
-const CAST_KEY = { "fourmi.webp": "ant", "albatros.webp": "albatross", "pigeon.webp": "pigeon", "grenouille.webp": "frog", "taupe.webp": "mole" };
-const CREW = [["fourmi.webp", "PROVEN"], ["albatros.webp", "NOT_PROVEN"], ["pigeon.webp", "NOT_PROVEN"], ["grenouille.webp", "CONTRADICTED"], ["taupe.webp", "COULD_NOT_CHECK"]];
-// What was said to be sent somewhere and never arrived belongs to the courier; the rest of what is missing, to the one who will do it tomorrow.
-const SENT_KINDS = new Set(["PUSHED", "PR_OPENED", "PR_MERGED", "COMMENT_POSTED", "COMMITTED", "REPO_CREATED"]);
+// One character per answer, and one answer per character: four answers, four characters. The ant really did it,
+// the pigeon says it was delivered and nothing is there, the frog says all green and the facts say otherwise,
+// the mole cannot let anyone look. Nothing to check keeps the octopus himself.
+// Until 2026-11-15 an albatross shared "not found" with the pigeon (missing vs sent): two characters for one answer,
+// which read as a dissonance: two characters for one place. The casting validated on 2026-11-13 has four.
+const CAST = { PROVEN: "fourmi.webp", NOT_PROVEN: "pigeon.webp", CONTRADICTED: "grenouille.webp", COULD_NOT_CHECK: "taupe.webp" };
+// How much of the journal a page carries. Measured on a real one on 2026-11-14: twenty days of use had
+// grown it to 1950 cards and 2.5 MB, and opening it froze the reader. The weight is not the drawings, there
+// are nine of those in the whole page: it is the cards. A journal that gets heavier every day until it
+// cannot be opened is a defect of the tool, not of the machine that opens it.
+//
+// Today is never cut. It is the day being worked, the one the four counters count, and the one a reader
+// opens the page for. Older days fill what is left of the budget, newest first, and what does not fit is
+// said plainly rather than quietly dropped: the file beside the page keeps everything, always.
+const VIEUX_MAX = 40;
+/**
+ * The answers a page carries: the whole of today, then the most recent of the days before.
+ *
+ * Today is never cut, and that is not a nicety: the four counters at the top count today, and clicking one
+ * now keeps only what it counts. A page that held less than today would show a counter saying eighty-two
+ * and a filtered view holding sixty. A number that cannot be opened on what it counts is the defect this
+ * tool exists against, so the page follows the counters, not the other way round.
+ *
+ * Measured on a real journal on 2026-11-14: twenty days of use had grown the page to 1950 cards and 2.5 MB,
+ * and opening it froze the reader. What is cut is said at the foot of the page, never quietly dropped, and
+ * the file beside it keeps every answer.
+ */
+export function borner(entries, now = new Date(), vieuxMax = VIEUX_MAX) {
+  const jour = dayKey(now.toISOString());
+  const aujourdhui = entries.filter((e) => dayKey(e.at) === jour);
+  const avant = entries.filter((e) => dayKey(e.at) !== jour);
+  return aujourdhui.concat(avant.slice(0, Math.max(0, vieuxMax)));
+}
+const CAST_KEY = { "fourmi.webp": "ant", "pigeon.webp": "pigeon", "grenouille.webp": "frog", "taupe.webp": "mole" };
+const CREW = [["fourmi.webp", "PROVEN"], ["pigeon.webp", "NOT_PROVEN"], ["grenouille.webp", "CONTRADICTED"], ["taupe.webp", "COULD_NOT_CHECK"]];
 export function castOf(entry) {
-  const v = entry.verdict;
-  let name = CAST[v];
-  if (v === "NOT_PROVEN" && (entry.rows ?? []).some((r) => r.verdict === "NOT_PROVEN" && SENT_KINDS.has(r.kind))) name = CAST.SENT;
+  const name = CAST[entry.verdict];
   return name && art(name) ? name : HERO;
 }
 const artCache = {};
@@ -1307,7 +1347,7 @@ const FONT_FILES = [
 const fontFaces = (dir) => (dir ? FONT_FILES.map(([family, file, weight, style, range]) => `@font-face{font-family:"${family}";font-style:${style};font-weight:${weight};font-display:swap;src:url(${dir}${file}) format("woff2")${range ? ";unicode-range:" + range : ""}}`).join("") : "");
 
 const PAGE_CSS = `
-:root{--ink:#171717;--paper:#EFEAE0;--sea:#0E3B43;--red:#E44940;--d:"Fraunces","Noto Naskh Arabic","Songti SC","Noto Serif SC",Georgia,serif;--t:"Inter","Noto Sans Arabic","PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;--m:"JetBrains Mono",ui-monospace,"Cascadia Mono",Consolas,monospace}
+:root{--ink:#171717;--paper:#EFEAE0;--sea:#0E3B43;--red:#E44940;--d:"Fraunces","Noto Naskh Arabic",Georgia,"Songti SC","Noto Serif SC",serif;--t:"Inter","Noto Sans Arabic",system-ui,-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif;--m:"JetBrains Mono",ui-monospace,"Cascadia Mono",Consolas,monospace}
 *{box-sizing:border-box}html{-webkit-text-size-adjust:100%}[hidden]{display:none!important}
 body{margin:0;padding:0;background:var(--paper);color:var(--ink);font:400 16.5px/1.6 var(--t);overflow-x:hidden;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 .langs{position:absolute;top:10px;inset-inline-end:12px;z-index:10;display:flex;gap:2px;padding:3px;border-radius:999px;background:rgba(255,255,255,.78)}
@@ -1336,6 +1376,12 @@ body{margin:0;padding:0;background:var(--paper);color:var(--ink);font:400 16.5px
 .bubbles{position:absolute;inset:0;z-index:1;pointer-events:none}.bubbles i{position:absolute;bottom:-20px;border:2px solid rgba(14,59,67,.38);border-radius:50%;background:rgba(255,255,255,.35);animation:rise linear infinite}
 .wave{position:absolute;left:0;bottom:-1px;width:200%;height:54px;z-index:3;animation:drift 16s linear infinite}.wave.back{opacity:.5;height:70px;animation-duration:26s;animation-direction:reverse}
 main{position:relative;z-index:4;max-width:860px;margin:-34px auto 0;padding:0 16px calc(80px + env(safe-area-inset-bottom))}
+button.tile{font:inherit;color:inherit;text-align:inherit;border:0;width:100%;cursor:pointer;appearance:none}
+button.tile:focus-visible{outline:3px solid #0E3B43;outline-offset:2px}
+.tile.choisi{box-shadow:inset 0 0 0 2px #0E3B43}
+a.cible{color:inherit;text-decoration-thickness:1px;text-underline-offset:2px}
+a.cible:hover code{text-decoration:underline}
+[hidden]{display:none!important}
 .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:0 0 18px;padding-inline-end:clamp(0px,calc(34vw - 60px),190px)}
 .tile{border-radius:16px;padding:14px 16px 12px;background:#fff;box-shadow:0 6px 18px rgba(14,59,67,.12)}
 .tile b{display:block;font:800 38px/1 var(--t);letter-spacing:-.045em;font-variant-numeric:tabular-nums}
@@ -1343,7 +1389,7 @@ main{position:relative;z-index:4;max-width:860px;margin:-34px auto 0;padding:0 1
 details.what{border-radius:16px;background:rgba(255,255,255,.7);padding:6px 18px;margin:0 0 6px}
 details.what summary{cursor:pointer;font:650 16px/1.4 var(--t);padding:10px 0;list-style:none}details.what summary::-webkit-details-marker{display:none}
 details.what summary::after{content:" +";color:var(--red)}details.what[open] summary::after{content:" −"}details.what p{margin:6px 0 12px;font-size:15.5px}
-details.what p.crew-title{margin:16px 0 8px}.crew{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px 20px;margin:4px 0 16px}.who{display:flex;gap:12px;align-items:center;margin:0}.face.who-face{flex:none;width:64px;height:84px;filter:drop-shadow(0 4px 4px rgba(14,59,67,.22))}.who figcaption{min-width:0;font:400 15px/1.35 var(--t)}.who figcaption b{font-weight:700}.who .stamp{display:inline-block;font-size:9.5px;padding:3px 6px 2px;margin-inline-start:8px;vertical-align:2px;transform:rotate(-2deg)}.who .line{display:block;font:italic 500 15.5px/1.35 var(--d);color:#3d3833;margin-top:3px}:lang(ar) .who .line,:lang(zh) .who .line{font-style:normal}:lang(ar) .who .stamp{font-size:11px;padding:3px 7px 4px}
+details.what p.crew-title{margin:16px 0 8px}.crew{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px 20px;margin:4px 0 16px}.who{display:flex;gap:12px;align-items:center;margin:0}.face.who-face{flex:none;width:64px;height:84px;filter:drop-shadow(0 4px 4px rgba(14,59,67,.22))}canvas.vivant{flex:none;display:block}.who figcaption{min-width:0;font:400 15px/1.35 var(--t)}.who figcaption b{font-weight:700}.who .stamp{display:inline-block;font-size:9.5px;padding:3px 6px 2px;margin-inline-start:8px;vertical-align:2px;transform:rotate(-2deg)}.who .line{display:block;font:italic 500 15.5px/1.35 var(--d);color:#3d3833;margin-top:3px}:lang(ar) .who .line,:lang(zh) .who .line{font-style:normal}:lang(zh){--d:"Fraunces","Songti SC","Noto Serif SC",Georgia,serif;--t:"Inter","PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}.L:lang(zh){font-family:var(--t)}:lang(ar) .who .stamp{font-size:11px;padding:3px 7px 4px}
 h2{font:600 11.5px/1 var(--t);letter-spacing:.2em;text-transform:uppercase;margin:34px 0 14px;border-top:1.5px solid var(--ink);padding-top:12px}
 article{position:relative;overflow-wrap:anywhere;border-radius:18px;background:#fff;margin:22px 0;padding:14px 16px;box-shadow:0 1px 0 rgba(23,23,23,.9),0 10px 24px rgba(14,59,67,.10);opacity:0;transform:translateY(14px);transition:opacity .45s ease,transform .45s ease}
 article.in,.nojs article{opacity:1;transform:none}
@@ -1353,6 +1399,12 @@ article.bad{box-shadow:0 0 0 2px #CD3435,0 10px 24px rgba(205,52,53,.16)}article
 article header{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0 0 6px;margin-inline-end:78px}
 article>.face.mini{position:absolute;inset-inline-end:8px;top:-22px;width:84px;height:84px;transform:rotate(4deg);filter:drop-shadow(0 6px 6px rgba(14,59,67,.25));transition:transform .3s ease}
 article:hover>.face.mini{transform:rotate(-3deg) translateY(-3px)}
+.face.mini,.face.who-face{transform-origin:50% 100%}
+article:hover>.f-fourmi,article:active>.f-fourmi,.who:hover>.f-fourmi{animation:nod .85s ease}
+article:hover>.f-pigeon,article:active>.f-pigeon,.who:hover>.f-pigeon{animation:peck .7s ease}
+
+article:hover>.f-grenouille,article:active>.f-grenouille,.who:hover>.f-grenouille{animation:hop .8s cubic-bezier(.3,.7,.4,1)}
+article:hover>.f-taupe,article:active>.f-taupe,.who:hover>.f-taupe{animation:burrow .9s cubic-bezier(.25,.9,.3,1)}
 time{font:500 13px/1 var(--m)}small{font:400 12px/1.4 var(--t);color:#5b544e;overflow-wrap:anywhere}.where{flex-basis:100%;font:400 11.5px/1.4 var(--m);opacity:.85}
 code,.where{direction:ltr;unicode-bidi:isolate}[dir="rtl"] .where{text-align:right}
 ul{list-style:none;margin:0;padding:0}li{display:flex;gap:14px;padding:10px 0;border-top:1px solid #e6dfd2}li div{min-width:0}
@@ -1379,6 +1431,11 @@ article.fresh .stamp.big{animation:slam .55s cubic-bezier(.2,1.5,.4,1) both}
 @keyframes ring{0%{box-shadow:0 0 0 0 rgba(228,73,64,.45)}100%{box-shadow:0 0 0 .3em rgba(228,73,64,0)}}
 @keyframes slam{0%{transform:scale(2.6) rotate(-16deg);opacity:0}60%{opacity:1}100%{transform:scale(1) rotate(-3deg);opacity:1}}
 @keyframes zz{0%,100%{transform:translateY(0);opacity:.25}50%{transform:translateY(-8px);opacity:.7}}
+@keyframes nod{0%,100%{rotate:0deg}18%{rotate:-7deg}38%{rotate:5deg}58%{rotate:-4deg}78%{rotate:2deg}}
+@keyframes peck{0%,100%{translate:0 0}22%{translate:-.2em .05em}44%{translate:.02em 0}66%{translate:-.13em .04em}}
+
+@keyframes hop{0%,100%{translate:0 0;scale:1 1}16%{scale:1.1 .88}40%{translate:0 -28%;scale:.93 1.12}64%{translate:0 0;scale:1.1 .88}82%{scale:1 1}}
+@keyframes burrow{0%{translate:0 38%;scale:1.04 .84}44%{translate:0 -9%;scale:.97 1.06}72%{translate:0 3%;scale:1.02 .98}100%{translate:0 0;scale:1 1}}
 @media(max-width:560px){.sea-in{padding:44px 16px 86px}.tiles{grid-template-columns:repeat(2,1fr);padding-inline-end:0}li{flex-direction:column;gap:6px}article{padding:14px}article>.face.mini{width:68px;height:68px;top:-20px;inset-inline-end:4px}article header{margin-inline-end:62px}.erratum{margin-inline-end:62px}.hero{margin-bottom:-46px}}
 @media(max-width:340px){.sea-in{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:10px;align-items:center;padding:44px 14px 72px}.id{display:contents}.over{grid-area:1/1/2/-1}.brand{grid-area:2/1/3/-1;font-size:min(48px,calc((100vw - 30px)/4.6))}.slogan{grid-area:3/1;margin-top:10px}.hero{grid-area:3/2;width:clamp(84px,32vw,108px);margin:8px 0 0}.mood{grid-area:4/1/5/-1;justify-self:start;margin-top:12px}main{padding-inline:12px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}article{opacity:1;transform:none}}
@@ -1489,7 +1546,9 @@ export function journalHtml(entries, now = new Date(), options = {}) {
     const hero = animated
       ? `<span class="face hero-face anim" role="img" aria-label="${esc(p.heroAlt)}" style="background-image:url(${esc(options.anim)})"></span>`
       : face(pose, p.heroAlt, "hero-face");
-    const tile = (v, n) => `<div class="tile ${TONE[v]}"><b data-n="${n}">${n}</b><span>${esc(p.tiles[v])}</span></div>`;
+    // Un compteur n'est plus un décor : il ouvre sur ce qu'il compte. Un bouton, donc, pas un bloc :
+    // le clavier et les lecteurs d'écran en ont besoin autant que la souris.
+    const tile = (v, n) => `<button type="button" class="tile ${TONE[v]}" data-v="${v}" aria-pressed="false"><b data-n="${n}">${n}</b><span>${esc(p.tiles[v])}</span></button>`;
     const stop = lang === "zh" ? "。" : ".";
     // The crew sits in the explanation, next to the four answers: each character stands for one of them and says its own sentence.
     const crew = CREW.every(([f]) => art(f))
@@ -1501,11 +1560,22 @@ export function journalHtml(entries, now = new Date(), options = {}) {
         "</div>"
       : "";
     let last = "";
-    const body = entries
+    // La page porte aujourd'hui en entier, puis une queue des jours d'avant. Le reste est dans le fichier.
+    const vues = borner(entries, now);
+    const laisses = entries.length - vues.length;
+    const body = vues
       .map((e) => {
         const head = dayKey(e.at) !== last ? ((last = dayKey(e.at)), `<h2>${esc(day(e.at))}</h2>`) : "";
         const rows = e.rows
-          .map((r) => `<li class="${TONE[r.verdict]}"><span class="stamp">${esc(w[r.verdict])}</span><div><strong>${r.negated ? esc(p.not) : ""}${esc(w.kind[r.kind] ?? r.kind)}${r.target ? " <code>" + esc(r.target) + "</code>" : ""}${r.since && p.since?.[r.since] ? ' <span class="since">' + esc(p.since[r.since]) + "</span>" : ""}</strong><em>${esc(say(lang, r.why))}${r.note ? " <b>" + esc(w.open.trim() + r.note + w.close) + "</b>" : ""}</em>${r.said ? `<p class="said" dir="auto">${p.quotes[0]}${esc(r.said)}${p.quotes[1]}</p>` : ""}</div></li>`)
+          .map((r) => {
+            const extra = asides(lang, { check: r.note, elsewhere: r.elsewhere }).trim();
+            const cible = r.target
+              ? r.url
+                ? ' <a class="cible" href="' + esc(r.url) + '" target="_blank" rel="noopener noreferrer"><code>' + esc(r.target) + "</code></a>"
+                : " <code>" + esc(r.target) + "</code>"
+              : "";
+            return `<li class="${TONE[r.verdict]}" data-v="${esc(r.verdict)}"><span class="stamp">${esc(w[r.verdict])}</span><div><strong>${r.negated ? esc(p.not) : ""}${esc(w.kind[r.kind] ?? r.kind)}${cible}${r.since && p.since?.[r.since] ? ' <span class="since">' + esc(p.since[r.since]) + "</span>" : ""}</strong><em>${esc(say(lang, r.why))}${extra ? " <b>" + esc(extra) + "</b>" : ""}</em>${r.said ? `<p class="said" dir="auto">${p.quotes[0]}${esc(r.said)}${p.quotes[1]}</p>` : ""}</div></li>`;
+          })
           .join("");
         const erratum = e.erratum ? `<p class="erratum"><b>${esc(p.erratum)}</b> ${esc(e.erratum)}</p>` : "";
         const source = sourceLabel(lang, e.source);
@@ -1527,8 +1597,8 @@ export function journalHtml(entries, now = new Date(), options = {}) {
 <main>
 <div class="tiles">${tile("PROVEN", seen)}${tile("NOT_PROVEN", refused)}${tile("CONTRADICTED", against)}${tile("COULD_NOT_CHECK", blind)}</div>
 <details class="what" open><summary>${esc(p.whatTitle)}</summary>${p.what.map((t) => "<p>" + t + "</p>").join("")}${crew}</details>
-${entries.length ? body : '<div class="empty">' + esc(p.empty) + "</div>"}
-<h2>${esc(p.updTitle)}</h2><p><small>${esc(p.upd(now.toLocaleString(loc), entries.length))}</small></p>
+${vues.length ? body : '<div class="empty">' + esc(p.empty) + "</div>"}
+<h2>${esc(p.updTitle)}</h2><p><small>${esc(p.upd(now.toLocaleString(loc), vues.length))}${laisses ? " " + p.older(laisses) : ""}</small></p>
 </main>
 </div>`;
     return lang === "fr" ? frenchSpaces(html) : html;
@@ -1541,7 +1611,7 @@ ${entries.length ? body : '<div class="empty">' + esc(p.empty) + "</div>"}
 @media(prefers-reduced-motion:reduce){.face.hero-face.anim{aspect-ratio:1;background-image:url(${art(HERO)})!important}}</style></head><body class="nojs${against || refused ? " alert" : ""}" data-last="${esc(entries[0]?.at ?? "")}" data-lang="${esc(options.lang ?? "")}"${options.embedded ? " data-embedded" : ""}>
 <nav class="langs" aria-label="Language">${LANGS.map((l) => `<button type="button" data-set="${l}" aria-pressed="${l === first}">${LANG_LABEL[l]}</button>`).join("")}</nav>
 ${LANGS.map(block).join("\n")}
-<script${mark}>${PAGE_SCRIPT}</script>
+<script${mark}>${PAGE_SCRIPT}${FILTRE}${VIVANT}</script>
 </body></html>`;
 }
 export function writeJournal(dir = homeDir()) {

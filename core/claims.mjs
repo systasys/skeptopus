@@ -14,8 +14,13 @@
 const strip = (s) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
 // A sentence that announces, asks or supposes is not a claim about the present.
+// "todo" is two words at once: what is left to do in English, "everything" in Spanish. Taken for the first,
+// it made a plan of every Spanish sentence that carried it, and nothing in such a sentence was read: not a
+// commit with its hash, not a push, not a deployment. Measured on 2026-11-14, five sentences out of six.
+// The English sense is marked in practice ("TODO:", "todo list", "todo item"), so it is asked for.
+const TODO_MARK = "\\btodos?\\b(?=\\s*[:\\u2014\\u2013-]|\\s+(?:list|lists|item|items))";
 const NOT_NOW = new RegExp(
-  "\\b(will|going to|gonna|should|would|could|need to|needs to|todo|to do|plan to|let me|if you|once you|" +
+  TODO_MARK + "|\\b(will|going to|gonna|should|would|could|need to|needs to|to do|plan to|let me|if you|once you|" +
     "je vais|on va|il faut|faudra|reste a|a faire|a prevoir|pourrai[st]?|pourra|devra|des que|quand tu|si tu|" +
     "je peux|tu peux|on peut|je propose|je recommande|je garderais|voudrais)\\b|" +
     // French future and conditional: "je redessinerai", "on poussera", "il faudrait".
@@ -74,6 +79,10 @@ const PUSH_VERB = /\b(pushed|push\s+(?:fait|effectue|done)|envoye[es]?\s+sur\s+(
 const PUSH_I18N = /\b(push hecho|hice (?:el )?push|pushead[oa]s?|pushee|subid[oa]s? (?:a|al) (?:origin|github|gitlab|remoto|la rama))\b|已推送|推送了|已经推送|推到了|推上去了|已 ?push|push ?了|تم ال ?push/;
 // "رفعت" also means "I raised": like French "poussé", it counts only next to a git word.
 const PUSH_LOOSE_AR = new RegExp("تم (?:رفع|دفع)|" + arWord("رفعت|دفعت"));
+// Spanish says it in the preterite, and only the participle was read: on 2026-11-15 "Lo subi a la rama main"
+// claimed nothing while English and French both said PUSHED on the same sentence. "subir" also means to go up,
+// to raise and to upload, so it joins the loose family above: it counts next to a git word or a repository named.
+const PUSH_LOOSE_ES = /\bsub(?:i|io|imos|iste|ieron)\b/;
 const PUSH_FR = /\bpousse[es]?\b/;
 const GIT_WORD = /\b(git|origin|github|gitlab|remote|distant|branche|branch|depot|repo|commit|main|master|rama|repositorio|remoto)\b|远程|分支|仓库|الفرع|المستودع/;
 const PUSH_NOUN = /\bpush\b|推送/;
@@ -208,6 +217,59 @@ function testRatios(flat) {
   return out;
 }
 // Blind spots closed on 2026-11-12: things an agent announces that live outside the working folder.
+// A test runner says its result in its own shape, not in a sentence: "Tests: 164 passed, 0 failed.",
+// "Tests: 3 passed, 3 total", "test result: ok. 12 passed; 0 failed", "# pass 167 # fail 0". The clause
+// cutter parts the word from the result, so neither half carries both and the clause-by-clause reading
+// below sees nothing. Measured on 2026-11-14: the shape an AI copies straight out of its terminal, the
+// most common one of all, reported nothing at all.
+const RUNNER_PASSED = /\b(\d{1,6})\s+(?:tests?\s+)?(?:passed|passing)\b|\bpass(?:ed)?\s*[:=]?\s*(\d{1,6})\b/;
+const RUNNER_FAILED = /\b(\d{1,6})\s+(?:tests?\s+)?(?:failed|failing)\b|\bfail(?:ed|ures?)?\s*[:=]?\s*(\d{1,6})\b/;
+// What pytest prints and no other sentence does: "5 passed in 0.12s".
+const RUNNER_TIMED = /\b\d{1,6}\s+passed\b[^.\n]{0,24}\bin\s+[\d.]+\s*(?:s|sec|secs|seconds|ms)\b/;
+/**
+ * The count a runner's own summary gives, or null when the sentence is not one. A summary that names
+ * failures is not a claim that the tests pass, so it is read as nothing rather than turned into a verdict.
+ */
+function runnerSummary(flat) {
+  const said = RUNNER_PASSED.exec(flat);
+  if (!said) return null;
+  const passed = Number(said[1] ?? said[2]);
+  if (!(passed > 0)) return null;
+  const failed = RUNNER_FAILED.exec(flat);
+  const none = failed ? Number(failed[1] ?? failed[2]) === 0 : null;
+  if (none === false) return null;
+  // What makes it a runner and not a sentence about something else that passed: the word "test", the words
+  // cargo prints, a count of failures at zero beside the passed one, or the seconds pytest puts after it.
+  return TEST_NOUN.test(flat) || /\btest result\b/.test(flat) || none === true || RUNNER_TIMED.test(flat) ? { passed } : null;
+}
+// A test command named, then a general success: "I ran npm test and everything passes." The word "test"
+// here is the command, not the plural noun the reading below looks for, and the success is said of
+// "everything", not of the tests, so both halves missed it. Measured on 2026-11-14.
+const TEST_CMD = new RegExp(
+  "\\b(?:npm|yarn|pnpm|bun)\\s+(?:run\\s+)?tests?\\b|\\bnpm\\s+t\\b|\\bnode\\s+--test\\b|\\bpytest\\b|" +
+    "\\b(?:cargo|go|mvn|gradle|gradlew|dotnet|swift)\\s+test\\b|\\bjest\\b|\\bvitest\\b|\\bphpunit\\b|\\brspec\\b|\\bctest\\b|\\bunittest\\b",
+);
+const RAN = new RegExp(
+  "\\b(ran|run|executed|launched|lance[es]?|relance[es]?|execute[es]?|fait tourner|ejecute|ejecutado|corri)\\b|" +
+    "跑了|运行了|执行了|跑过|" +
+    arWord("شغلت|نفذت|جربت"),
+);
+const ALL_OK = new RegExp(
+  "\\b(?:everything|all|all of them|they all|it all)\\s+(?:pass|passes|passed|passing)\\b|\\ball\\s+(?:green|passing)\\b|" +
+    "\\beverything\\s+(?:is\\s+)?(?:green|fine|ok)\\b|\\btout\\s+(?:passe|est\\s+vert|est\\s+au\\s+vert|est\\s+ok)\\b|\\btous?\\s+(?:passent|verts?)\\b|" +
+    "\\btodo\\s+(?:pasa|pasan|esta\\s+(?:en\\s+verde|bien|ok)|en\\s+verde|correcto|bien)\\b|全部通过|全都通过|都通过了|全绿|" +
+    arWord("كلها ناجحه|الكل ناجح|كلها تنجح"),
+);
+// Where a thing is, said of a path that carries no link: "the fix lives in core/observe.mjs". No verb of
+// writing, so the reading below passed it by, and a path on its own is rightly not a claim (technical prose
+// names paths all day). A verb of place is one: it says the file is there, which is what "file mentioned"
+// answers. Measured on 2026-11-14.
+const AT_PATH = new RegExp(
+  "\\b(?:lives?|sits?|is|are|resides?|lies?)\\s+(?:now\\s+)?in\\b|\\byou(?:'ll| will)?\\s+find\\s+(?:it|them|that)\\s+in\\b|\\bit'?s\\s+in\\b|" +
+    "\\b(?:se\\s+trouve|se\\s+trouvent|est|sont|vit)\\s+dans\\b|\\bc'?est\\s+dans\\b|" +
+    "\\b(?:esta|estan|se\\s+encuentra|vive)\\s+en\\b|位于|在于|" +
+    arWord("موجود|توجد|يوجد"),
+);
 const COMMENT_URL = /https?:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/(?:issues|pull)\/(\d+)#issuecomment-(\d+)/g;
 const COMMENT_ID = /(?:\b(?:commentaires?|entrees?|checkpoints?|comments?|entry|entries|comentarios?|entradas?)\b|评论|留言|تعليق)[^.;。]{0,40}?\b(\d{9,11})\b/g;
 const REPO_MADE = new RegExp(
@@ -258,7 +320,7 @@ const NOT_A_BRANCH = new Set("is was are now at to on in the a an de du la le le
 // "Pushed to acme/receipts", "poussé sur le dépôt acme/x": the push goes to the repository named right after.
 const PUSHED_TO = /(?:\b(?:to|onto|into|on|sur|vers|dans|a|al|hacia)|à)\s+(?:(?:the|le|la|les|l['’]|el|my|our|mon|notre)\s*)?(?:(?:repo|repository|depot|dépôt|repositorio|remote)\s+)?[`'"[]?\s*$/i;
 // French "poussé" and Arabic "رفعت" count next to a git word, or next to a repository named ("poussé sur acme/x").
-const pushVerb = (c) => PUSH_VERB.test(c) || PUSH_I18N.test(c) || ((PUSH_FR.test(c) || PUSH_LOOSE_AR.test(c)) && (GIT_WORD.test(c) || repositoriesNamed(c).length > 0));
+const pushVerb = (c) => PUSH_VERB.test(c) || PUSH_I18N.test(c) || ((PUSH_FR.test(c) || PUSH_LOOSE_ES.test(c) || PUSH_LOOSE_AR.test(c)) && (GIT_WORD.test(c) || repositoriesNamed(c).length > 0));
 const trimRef = (s) => String(s).replace(/[.,;:!?]+$/, "");
 // Polarity is judged without the names a sentence carries: "acme/no-regrets", a commit, a path, or a branch the
 // sentence names ("fix-not-found") deny nothing. "non-fusionnée" still denies, and so does "not." at the end.
@@ -527,6 +589,8 @@ export function extractClaims(text) {
     if (!later && (WRITE_VERB.test(flat) || WRITE_VERB_I18N.test(flat))) for (const path of [...linked, ...paths(sentence)]) add({ kind: "FILE_WRITTEN", path, negated: false, sentence: full });
     // A link to a local file promises that the file is there, in any sentence that is not a plan.
     if (!later) for (const path of linked) add({ kind: "FILE_REFERENCED", path, negated: false, sentence: full });
+    // A path said to be somewhere promises the same thing, link or no link: "it lives in core/observe.mjs".
+    if (!later && AT_PATH.test(flat) && !NEGATION.test(flat)) for (const path of paths(sentence)) add({ kind: "FILE_REFERENCED", path, negated: false, sentence: full });
     if (later) {
       listHead = null;
       continue;
@@ -619,12 +683,33 @@ export function extractClaims(text) {
         add({ kind: "TESTS_PASS", ...(n ? { passed: n, total: n } : {}), ...base });
       }
     }
+    // Two readings no clause can make on its own, because each needs both halves of the sentence: a
+    // runner's own summary, and a test command named with a general success. Both stay narrow: they add
+    // nothing where a condition, a negation, a ratio or a count of failures is read.
+    if (!claims.some((c) => c.kind === "TESTS_PASS" && c.sentence === full) && !ratios.length && !CONDITION.test(flat) && !NEGATION.test(flat)) {
+      const runner = runnerSummary(flat);
+      if (runner) add({ kind: "TESTS_PASS", passed: runner.passed, total: runner.passed, negated: false, sentence: full });
+      else if ((TEST_CMD.test(flat) || TEST_NOUN.test(flat) || TEST_WORD_I18N.test(flat)) && RAN.test(flat) && ALL_OK.test(flat)) add({ kind: "TESTS_PASS", negated: false, sentence: full });
+    }
     // After the clauses: a request the clauses already read (with the word "PR") keeps that reading.
     for (const ref of named) {
       if (claims.some((c) => c.pr === ref.pr && c.sentence === full)) continue;
       add({ kind: ref.kind, pr: ref.pr, ...(ref.repo ? { repo: ref.repo } : {}), negated: ref.negated, sentence: full });
     }
     if (pushSaid && !targets.length && /[:：]\s*$/.test(full)) listHead = { claim: claims.find((c) => c.kind === "PUSHED" && !c.repo && !c.negated && c.sentence === full) ?? null };
+  }
+  // A runner's block spread over lines ("# tests 167", "# pass 167", "# fail 0"): each line is read as its
+  // own sentence, so no line carries both halves. Read once over the whole message, only where no test
+  // reading was made and the block names zero failures, a pair that hardly occurs outside a runner's output.
+  if (!claims.some((c) => c.kind === "TESTS_PASS")) {
+    const whole = plain(text.replace(QUOTED, " "));
+    const said = RUNNER_PASSED.exec(whole);
+    const failed = RUNNER_FAILED.exec(whole);
+    const passed = said ? Number(said[1] ?? said[2]) : 0;
+    if (said && failed && passed > 0 && Number(failed[1] ?? failed[2]) === 0 && !CONDITION.test(whole) && !NEGATION.test(whole)) {
+      const line = text.split(/\r?\n/).find((l) => RUNNER_PASSED.test(plain(l))) ?? text;
+      add({ kind: "TESTS_PASS", passed, total: passed, negated: false, sentence: line.trim() });
+    }
   }
   const kept = claims.filter((c) => !dropped.has(c));
   // "Done." followed by what was done is an opening word, not a vague answer: it is vague only when it is all there is.

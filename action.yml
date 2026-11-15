@@ -1,56 +1,67 @@
 name: SkeptOpus
-description: "Your AI says it's done. SkeptOpus goes and looks: the claims of a pull request, checked against the code."
+description: "Your AI says it's done. SkeptOpus goes and looks, and leaves a receipt on every pull request an AI agent writes."
 author: SYSTASYS
 branding:
   icon: eye
   color: red
 
+# Use it on `pull_request`, never on `pull_request_target`: the pull request's own code is checked out here.
 inputs:
-  read:
-    description: "What to check: 'pull-request' (its description and its commit messages), or the path of a text file."
-    default: pull-request
+  who:
+    description: "Which pull requests get a receipt: 'ai-agents' (the default: opened, pushed or co-written by Copilot, Codex, Claude Code, Cursor, Devin, Jules...) or 'everyone'."
+    default: ai-agents
   fail-on:
     description: "What fails the run: 'contradicted' (the default), 'problems' (contradicted or not found), 'anything' (anything not seen) or 'never'."
     default: contradicted
-  settings:
-    description: "A SkeptOpus settings file in the repository: the test command, declared measurements. Optional. Never use this action on pull_request_target."
-    default: ""
   lang:
-    description: "The language of the summary: en, fr, es, zh or ar."
+    description: "The language of the receipt: en, fr, es, zh or ar."
     default: en
+  settings:
+    description: "A SkeptOpus settings file in the repository (the test command, declared measurements). Optional. The test command runs the pull request's code, as any CI does."
+    default: ""
+  token:
+    description: "The token that reads the pull request and writes the receipt. The run's own token is enough."
+    default: ${{ github.token }}
+
+outputs:
+  verdict:
+    description: "The overall answer: PROVEN (seen), NOT_PROVEN (not found), CONTRADICTED, COULD_NOT_CHECK (couldn't look), NOTHING_CLAIMED, or NOT_CHECKED when no AI agent was seen."
+    value: ${{ steps.look.outputs.verdict }}
+  agents:
+    description: "The AI agents seen on the pull request, comma separated."
+    value: ${{ steps.look.outputs.agents }}
+  receipt-file:
+    description: "The receipt as JSON, in the runner's temporary folder."
+    value: ${{ steps.look.outputs.receipt-file }}
+  comment-url:
+    description: "The address of the receipt on the pull request."
+    value: ${{ steps.look.outputs.comment-url }}
 
 runs:
   using: composite
   steps:
-    # What the pull request says is written to a file and read from there: it is never pasted into a command.
-    - name: Gather what the pull request claims
+    # The workflow may have checked out the code already; if not, the whole history, without leaving the token
+    # in the checkout, where the code being checked could read it.
+    - name: Is the code here?
+      id: here
+      shell: bash
+      run: if [ -d "$GITHUB_WORKSPACE/.git" ]; then echo "git=yes" >> "$GITHUB_OUTPUT"; else echo "git=no" >> "$GITHUB_OUTPUT"; fi
+    - name: Check out the pull request
+      if: steps.here.outputs.git == 'no'
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+    # What the pull request says is read from GitHub by the script: it is never pasted into a command.
+    - name: Go and look, then leave the receipt
+      id: look
       shell: bash
       env:
-        READ: ${{ inputs.read }}
-        BASE: ${{ github.event.pull_request.base.sha }}
-        HEAD: ${{ github.event.pull_request.head.sha }}
+        SKEPTOPUS_TOKEN: ${{ inputs.token }}
+        INPUT_WHO: ${{ inputs.who }}
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+        INPUT_LANG: ${{ inputs.lang }}
+        INPUT_SETTINGS: ${{ inputs.settings }}
       run: |
-        set -euo pipefail
-        out="$RUNNER_TEMP/skeptopus-claims.md"
-        if [ "$READ" = "pull-request" ]; then
-          jq -r '.pull_request.body // ""' "$GITHUB_EVENT_PATH" > "$out"
-          # The commit messages too, when the checkout has the history (actions/checkout with fetch-depth: 0).
-          if [ -n "${BASE:-}" ] && [ -n "${HEAD:-}" ]; then git log --format='%B' "$BASE..$HEAD" >> "$out" 2>/dev/null || true; fi
-        else
-          cp "$GITHUB_WORKSPACE/$READ" "$out"
-        fi
-        echo "SKEPTOPUS_CLAIMS=$out" >> "$GITHUB_ENV"
-    - name: Go and look
-      shell: bash
-      env:
-        FAIL_ON: ${{ inputs.fail-on }}
-        SETTINGS: ${{ inputs.settings }}
-        SUMMARY_LANG: ${{ inputs.lang }}
-      run: |
-        set -uo pipefail
-        if [ -n "$SETTINGS" ]; then export SKEPTOPUS_CONFIG="$GITHUB_WORKSPACE/$SETTINGS"; fi
         export SKEPTOPUS_HOME="$RUNNER_TEMP/skeptopus-home"
-        node "$GITHUB_ACTION_PATH/core/cli.mjs" check --message-file "$SKEPTOPUS_CLAIMS" --cwd "$GITHUB_WORKSPACE" --lang "$SUMMARY_LANG" --format md --output "$RUNNER_TEMP/skeptopus.md" --fail-on "$FAIL_ON"
-        code=$?
-        cat "$RUNNER_TEMP/skeptopus.md" >> "$GITHUB_STEP_SUMMARY"
-        exit $code
+        node "$GITHUB_ACTION_PATH/core/action.mjs"

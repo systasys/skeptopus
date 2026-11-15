@@ -2,6 +2,17 @@
 
 The engine, its command line, its MCP server and the GitHub action. The editor extension carries the same engine and keeps its own list in `extension/CHANGELOG.md`.
 
+## 0.2.5
+
+A receipt on every pull request an AI agent writes, four answers with four characters, and more of what an AI says is read.
+
+- **A receipt on the pull request.** The GitHub action now reads what a pull request written by an AI agent says it did (title, description, commit messages), goes and looks, and leaves one comment: the four answers, each with what was seen. It names the agent and where that was seen: the account, a commit trailer, a line in the description, the branch. The comment is updated on every push, with the earlier answers kept in one line. A person's own pull request is left alone unless you set `who: everyone`. Three lines to install, no telemetry: nothing leaves the run but the comment. The run's token is lent to GitHub's own tool only when it reads, never to the test command.
+- **Four answers, four characters.** One character per answer everywhere: the ant is SEEN, the pigeon NOT FOUND, the frog CONTRADICTED, the mole COULDN'T LOOK. In French, REFUSÉ becomes PAS TROUVÉ.
+- **A verdict says where it looked**, when that is not the folder the agent worked in. A folder declared long ago could answer "seen" for a file in another project, and nothing said which folder had answered.
+- **More ways of saying it are read.** A runner's own summary ("Tests: 164 passed, 0 failed", cargo, pytest), a test command followed by "everything passes", a file said to live somewhere, and a push said in the Spanish preterite ("lo subí a la rama main"), which claimed nothing until now.
+- **"Couldn't look" says why when GitHub's tool has no login**, instead of saying GitHub could not be reached.
+- **The journal page.** The four counters open on what they count; an address seen when a claim was checked becomes a link; the characters move when the line they hold is pointed at; the page keeps today whole and a tail of the days before, so it no longer grows until it cannot be opened; it reads well at phone width.
+
 ## 0.2.4
 
 Three ways SkeptOpus could say something it had not seen. All three are now closed, and it says "couldn't look" instead.

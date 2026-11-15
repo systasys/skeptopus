@@ -2,6 +2,7 @@
 // scripts/skeptopus-try-in-editor.mjs, which opens a window and is therefore not part of this run.
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { join, resolve, sep } from "node:path";
 import { test } from "node:test";
@@ -195,10 +196,28 @@ test("npm: the engine as a package, publishable only on purpose, with a README t
   assert.equal(absolute('<img src="core/art/x.webp"> [a](LICENSE) [b](https://x.y) <a href="#top">', "1.2.3"), '<img src="https://raw.githubusercontent.com/systasys/skeptopus/v1.2.3/core/art/x.webp"> [a](https://github.com/systasys/skeptopus/blob/v1.2.3/LICENSE) [b](https://x.y) <a href="#top">');
 });
 
+test("packages: what the engine imports goes out with it, and the packed engine runs", () => {
+  // Found on 2026-11-15 while preparing 0.2.5: the journal page had brought two new files into the engine
+  // (filtre.mjs, vivant.mjs), the command line imported them, and neither the npm list nor the extension's
+  // knew them. Every test passed in the repository, where the files sit beside it; the package itself would
+  // have stopped on its first line, on every machine. So the package is run here, from where it was laid out.
+  const work = scratch("skeptopus-packed-");
+  const { dir } = stageNpm(join(work, "npm"));
+  stage(join(work, "extension"));
+  for (const engine of [dir, join(work, "extension", "engine")]) {
+    for (const file of readdirSync(engine).filter((f) => f.endsWith(".mjs")))
+      for (const m of readFileSync(join(engine, file), "utf8").matchAll(/from\s+"\.\/([^"]+)"/g)) assert.ok(existsSync(join(engine, m[1])), engine + ": " + file + " imports " + m[1] + ", which is not packed");
+    const ran = spawnSync(process.execPath, [join(engine, "cli.mjs"), "check", "--message", "I created `cli.mjs`.", "--cwd", engine], { encoding: "utf8", env: { ...process.env, SKEPTOPUS_HOME: join(work, "home") } });
+    assert.equal(ran.status, 0, ran.stderr);
+    assert.match(ran.stdout, /SkeptOpus/);
+  }
+});
+
 test("mcp registry: the package and server.json name the same server, at the same version", () => {
   const work = scratch("skeptopus-mcpname-");
   const { pkg } = stageNpm(join(work, "package"));
-  const server = JSON.parse(readFileSync(resolve("release", "public", "server.json"), "utf8"));
+  // Kept in release/public here; at the root of the public repository, whose own tests must pass too.
+  const server = JSON.parse(readFileSync([resolve("release", "public", "server.json"), resolve("server.json")].find((f) => existsSync(f)), "utf8"));
   const engine = JSON.parse(readFileSync(resolve("core", "package.json"), "utf8"));
   // The registry reads mcpName in the published package.json and refuses the entry unless it equals name in
   // server.json. Retyping either one would publish a package the registry cannot tie to its server.

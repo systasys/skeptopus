@@ -50,7 +50,7 @@ AI agents are good at work and generous with the word "done". Nobody can reread 
 <table>
   <tr>
     <td align="center" width="25%"><img src="core/art/fourmi.webp" width="96" alt=""><br><b>SEEN</b><br><sub>It looked. It's true.</sub></td>
-    <td align="center" width="25%"><img src="core/art/albatros.webp" width="96" alt=""><br><b>NOT FOUND</b><br><sub>It looked and found nothing.</sub></td>
+    <td align="center" width="25%"><img src="core/art/pigeon.webp" width="96" alt=""><br><b>NOT FOUND</b><br><sub>It looked and found nothing.</sub></td>
     <td align="center" width="25%"><img src="core/art/grenouille.webp" width="96" alt=""><br><b>CONTRADICTED</b><br><sub>It found the opposite.</sub></td>
     <td align="center" width="25%"><img src="core/art/taupe.webp" width="96" alt=""><br><b>COULDN'T LOOK</b><br><sub>No way to look, so no verdict.</sub></td>
   </tr>
@@ -97,23 +97,17 @@ A check the AI makes on itself is kept out of your journal: an agent that verifi
 
 ## In continuous integration
 
-SkeptOpus reads what a pull request claims, its description and its commits, and checks it against the code:
+On every pull request an AI agent writes (Copilot, Codex, Claude Code, Cursor, Devin, Jules...), SkeptOpus reads what it says it did, goes and looks, and leaves a receipt on the pull request: the four answers, with what was seen. Save these three lines as `.github/workflows/skeptopus.yml`:
 
 ```yaml
 on: pull_request
-jobs:
-  skeptopus:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
-      - uses: systasys/skeptopus@v0.2.2
-        with:
-          fail-on: contradicted       # or: problems, anything, never
-          settings: .github/skeptopus.json
+permissions: { contents: read, pull-requests: write }
+jobs: { receipt: { runs-on: ubuntu-latest, steps: [ { uses: systasys/skeptopus@v0.2.5 } ] } }
 ```
 
-The answer lands in the run's summary as a table. From the command line, `check` also writes `--format md` or `--format junit` (one test case per claim, read by every CI dashboard), `--output` to a file, and `--fail-on` to decide what fails the run. Use it on `pull_request`, never on `pull_request_target`.
+The receipt says which agent wrote the pull request and where that was seen (the account, a commit trailer, the branch). It is one comment, updated on every push, with the earlier answers in one line. Options go under `with:`: `who: everyone` to check every pull request, `lang: fr`, `fail-on: problems` (or `contradicted`, the default, `anything`, `never`), `settings: .github/skeptopus.json` to declare your test command. Nothing leaves the run but the comment: no telemetry. A badge for your README is printed in the run's summary.
+
+From the command line, `check` also writes `--format md` or `--format junit` (one test case per claim, read by every CI dashboard), `--output` to a file, and `--fail-on` to decide what fails the run. Use it on `pull_request`, never on `pull_request_target`.
 
 ## Settings and profiles
 
@@ -177,8 +171,8 @@ No server, no account, no telemetry. Everything it keeps stays in `~/.skeptopus`
 ## The extension for VS Code and Cursor
 
 ```sh
-node scripts/skeptopus-pack-extension.mjs        # writes dist/skeptopus-0.2.2.vsix
-code --install-extension dist/skeptopus-0.2.2.vsix
+node scripts/skeptopus-pack-extension.mjs        # writes dist/skeptopus-0.2.5.vsix
+code --install-extension dist/skeptopus-0.2.5.vsix
 ```
 
 The journal in a side panel, the worst answer of the day in the status bar, and "check what I copied". It runs the engine with the editor's own runtime. See `extension/README.md`.

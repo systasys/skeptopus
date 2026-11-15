@@ -1,5 +1,14 @@
 # What changed
 
+## 0.2.5
+
+Four answers, four characters, and the engine inside reads more.
+
+- One character per answer: the ant is SEEN, the pigeon NOT FOUND, the frog CONTRADICTED, the mole COULDN'T LOOK. In French, REFUSÉ becomes PAS TROUVÉ.
+- A verdict says which folder answered, when it is not the one the AI worked in.
+- A runner's own summary ("Tests: 164 passed"), "I ran npm test and everything passes", and a push said in the Spanish preterite are read.
+- The journal page: counters that open on what they count, links where an address was seen, characters that move when pointed at, a page that stays light, and a phone-width layout.
+
 ## 0.2.4
 
 The engine inside says "couldn't look" where it used to answer on something it had not seen.

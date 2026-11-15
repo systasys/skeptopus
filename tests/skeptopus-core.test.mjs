@@ -7,9 +7,11 @@ import { basename, delimiter, join, resolve } from "node:path";
 import { test } from "node:test";
 
 import { extractClaims } from "../core/claims.mjs";
-import { attach, castOf, check, clipboard, dayOf, detach, firstForThisTurn, glance, install, journalHtml, nodeForHooks, normalize, openPage, poseOf, render, signalPlan, status, summary, tell, uninstall } from "../core/cli.mjs";
+import { attach, borner, castOf, check, clipboard, dayOf, detach, firstForThisTurn, glance, install, journalHtml, nodeForHooks, normalize, openPage, poseOf, render, signalPlan, status, summary, tell, uninstall } from "../core/cli.mjs";
 import { homeOf, observe, overall, run as realRun } from "../core/observe.mjs";
 import { DIR, LANGS, PAGE, WHY, WORDS, say, sourceLabel } from "../core/words.mjs";
+import { GENS, VIVANT } from "../core/vivant.mjs";
+import { FILTRE } from "../core/filtre.mjs";
 import { TEST_ROOT, rootFrom, scratch } from "./tmp.mjs";
 
 const kinds = (text) => extractClaims(text).map((c) => (c.negated ? "!" : "") + c.kind + (c.path ? ":" + c.path : c.sha ? ":" + c.sha : c.pr ? ":" + c.pr : c.id ? ":" + c.id : c.name ? ":" + c.name + (c.private ? ":private" : "") : c.text ? ":" + c.text : c.total ? ":" + c.passed + "/" + c.total : ""));
@@ -192,6 +194,63 @@ test("claims: a link promises a file; 'written' is the stronger promise; a bare 
   assert.deepEqual(kinds("Nothing to report."), []);
 });
 
+test("claims: a runner's own summary, a test command with a general success, a path said to be somewhere", () => {
+  // The three forms measured on 2026-11-14, each of which reported nothing at all. The first is the shape
+  // an AI copies straight out of its terminal, so it was the most common miss of the three. None of them
+  // widens what a claim is beyond its own shape: see the silences asserted below.
+  assert.deepEqual(kinds("Tests: 164 passed, 0 failed."), ["TESTS_PASS:164/164"]);
+  assert.deepEqual(kinds("Tests:       3 passed, 3 total"), ["TESTS_PASS:3/3"]);
+  assert.deepEqual(kinds("test result: ok. 12 passed; 0 failed"), ["TESTS_PASS:12/12"]);
+  assert.deepEqual(kinds("===== 5 passed in 0.12s ====="), ["TESTS_PASS:5/5"]);
+  // A runner that puts its block on several lines: no line carries both halves, so it is read once, whole.
+  assert.deepEqual(kinds("# tests 167\n# pass 167\n# fail 0"), ["TESTS_PASS:167/167"]);
+  assert.deepEqual(kinds("I ran npm test and everything passes."), ["TESTS_PASS"]);
+  assert.deepEqual(kinds("J'ai lancé pytest et tout passe."), ["TESTS_PASS"]);
+  assert.deepEqual(kinds("Ejecuté los tests y todo pasa."), ["TESTS_PASS"]);
+  assert.deepEqual(kinds("The fix lives in core/observe.mjs."), ["FILE_REFERENCED:core/observe.mjs"]);
+  assert.deepEqual(kinds("Le correctif se trouve dans core/observe.mjs."), ["FILE_REFERENCED:core/observe.mjs"]);
+  // What must stay silent, and is the reason these three readings are narrow: a count of failures is not a
+  // claim that the tests pass, a plan is not a report, and a path named or pointed at promises nothing.
+  assert.deepEqual(kinds("Tests: 160 passed, 4 failed."), []);
+  assert.deepEqual(kinds("The tests do not pass: 0 passed, 12 failed."), []);
+  assert.deepEqual(kinds("I will run npm test and everything passes."), []);
+  assert.deepEqual(kinds("Si les tests passent, je fusionne."), []);
+  assert.deepEqual(kinds("I ran npm test to see what breaks."), []);
+  assert.deepEqual(kinds("Je vais regarder core/observe.mjs."), []);
+  assert.deepEqual(kinds("See core/observe.mjs for the detail."), []);
+});
+
+test("claims: Spanish says its push with its own verb, and that verb alone is not a push", () => {
+  // Measured on 2026-11-15, against English and French on the same sentence: "Lo subi a la rama main" said
+  // nothing at all, while "I pushed it to the main branch" and "Je l'ai pousse sur la branche main" both said
+  // PUSHED. Only the Spanish participle ("lo he subido a origin") was read, so a whole tense was deaf: the
+  // commonest way to say it in Spanish, the preterite, claimed nothing and was therefore never checked.
+  //
+  // "subir" also means to go up, to raise and to upload, so it cannot count on its own: like French "pousse"
+  // and Arabic "رفعت", it counts only next to a git word or a repository named. A deaf tense is a silent hole,
+  // the worst kind for this tool; a verb that counts everywhere would be the other kind, a claim invented.
+  const kinds = (s) => extractClaims(s).map((c) => c.kind);
+  assert.deepEqual(kinds("Lo subi a la rama main."), ["PUSHED"], "the preterite is how Spanish says it");
+  assert.deepEqual(kinds("Lo subio a octo/demo-site."), ["PUSHED"], "a repository named is git enough");
+  assert.deepEqual(kinds("Lo subimos a origin."), ["PUSHED"], "and the plural too");
+  // Nothing of git around it: the verb keeps its ordinary Spanish meaning and claims nothing.
+  assert.deepEqual(kinds("Subi la temperatura del horno."), []);
+  assert.deepEqual(kinds("Subimos al tejado para ver el mar."), []);
+});
+
+test("claims: 'todo' is Spanish for 'everything', and it was silencing whole Spanish sentences", () => {
+  // Measured on 2026-11-14: "todo" sat in the list of words that announce a plan, for the English sense of
+  // something left to do. Every Spanish sentence carrying it was therefore read as a plan, and nothing in
+  // it was read at all: not a commit with its hash, not a push, not a deployment. Five sentences out of six.
+  assert.deepEqual(kinds("He hecho el commit abc1234 y todo pasa."), ["COMMITTED:abc1234"]);
+  assert.deepEqual(kinds("Commit abc1234 hecho, todo bien."), ["COMMITTED:abc1234"]);
+  assert.deepEqual(kinds("Ejecuté los tests y todo está en verde."), ["TESTS_PASS"]);
+  // The English sense is marked in practice, and that mark is what is now asked for.
+  assert.deepEqual(kinds("TODO: fix the tests."), []);
+  assert.deepEqual(kinds("There is a todo list for that."), []);
+  assert.deepEqual(kinds("I have nothing to do."), []);
+});
+
 test("claims: what happens outside the folder (blind spots closed on 2026-11-12)", () => {
   // Posted comments, by number or by link.
   assert.deepEqual(kinds("Le constat est consigné au journal (entrée 1000000081)."), ["COMMENT_POSTED:1000000081"]);
@@ -240,6 +299,38 @@ test("look: a file is seen, missing, empty, or older than the session", async ()
   ]);
   // Pointing at an old file is fine: a link claims existence, not novelty.
   assert.deepEqual(await look("See [old](old.md) and [gone](gone.md).", ctx), ["PROVEN:FILE_PRESENT", "NOT_PROVEN:FILE_ABSENT"]);
+});
+
+test("look: a file found in a folder the settings declare says where it looked, in five languages", async () => {
+  // Measured on 2026-11-14 on a real setting: a folder declared back when there was a single project was
+  // still looked in from everywhere, so "I wrote core/observe.mjs" came back SEEN from a folder with no link
+  // to that project at all. Looking there was right, the user had declared it; saying only "the file is
+  // there" was not. A verdict that hides where it looked is how a setting of that shape stays invisible.
+  const here = scratch("skeptopus-ici-");
+  const other = scratch("skeptopus-ailleurs-");
+  mkdirSync(join(other, "core"), { recursive: true });
+  writeFileSync(join(other, "core", "observe.mjs"), "x");
+  const away = await check("J'ai écrit core/observe.mjs.", { roots: [here, other], config: { roots: [other] } });
+  assert.equal(away.rows[0].verdict, "PROVEN");
+  assert.equal(away.rows[0].facts.elsewhere, other);
+  for (const [lang, word] of [
+    ["en", "found in"],
+    ["fr", "trouvé dans"],
+    ["es", "encontrado en"],
+    ["zh", "找到于"],
+    ["ar", "موجود في"],
+  ])
+    assert.ok(render(away, lang).includes(word + " " + other), lang + " must say where it looked");
+  // The file in the folder the agent works in: nothing to warn about, so nothing is added.
+  mkdirSync(join(here, "core"), { recursive: true });
+  writeFileSync(join(here, "core", "observe.mjs"), "x");
+  const home = await check("J'ai écrit core/observe.mjs.", { roots: [here, other], config: { roots: [other] } });
+  assert.equal(home.rows[0].facts.elsewhere, undefined);
+  assert.ok(!render(home, "fr").includes("trouvé dans"));
+  // A folder named for this run is not a setting: the user just said where to look, so it is not flagged.
+  const asked = await check("J'ai écrit core/observe.mjs.", { roots: [scratch("skeptopus-vide-"), other], config: {} });
+  assert.equal(asked.rows[0].verdict, "PROVEN");
+  assert.equal(asked.rows[0].facts.elsewhere, undefined);
 });
 
 test("look: commits are checked in git, not in the agent's story", async () => {
@@ -653,6 +744,113 @@ test("journal: a day with something to look at keeps its sentence while the octo
   assert.match(page, /Today: 1 contradicted\. Worth a look\./);
 });
 
+test("journal: the page carries today whole and a tail of the days before, and says what it left out", () => {
+  // Measured on a real journal on 2026-11-14: twenty days of use had grown the page to 1950 cards and
+  // 2.5 MB, and opening it froze the reader. The drawings are not the weight, there are nine in the whole
+  // page: the cards are. A journal that gets heavier every day until it cannot be opened is a defect of
+  // the tool, not of the machine that opens it.
+  const now = new Date("2026-11-14T15:00:00Z");
+  const ligne = { verdict: "PROVEN", kind: "FILE_WRITTEN", target: "a.md", why: "FILE_PRESENT" };
+  const faire = (jour, n, h = 12) => Array.from({ length: n }, (_, i) => ({ at: jour + "T" + String(h).padStart(2, "0") + ":" + String(i % 60).padStart(2, "0") + ":00Z", verdict: "PROVEN", rows: [ligne] }));
+  const journal = [...faire("2026-11-14", 120), ...faire("2026-11-13", 90), ...faire("2026-11-12", 70)];
+
+  // Aujourd'hui n'est jamais coupé : les quatre compteurs comptent aujourd'hui, et cliquer l'un d'eux ne
+  // garde que ce qu'il compte. Une page qui porterait moins qu'aujourd'hui afficherait un compteur à 120
+  // et une vue filtrée à 40. Un nombre qu'on ne peut pas ouvrir sur ce qu'il compte, c'est le défaut même.
+  const vues = borner(journal, now, 40);
+  assert.equal(vues.filter((e) => e.at.startsWith("2026-11-14")).length, 120, "today is never cut");
+  assert.equal(vues.length, 160, "and the days before are a tail, not the whole history");
+  assert.equal(borner(journal, now, 0).length, 120, "a tail of nothing still keeps today");
+
+  // Ce qui est laissé de côté est dit, jamais retiré en silence, et le fichier à côté garde tout.
+  const page = journalHtml(journal, now);
+  assert.match(page, /Not everything is on this page: 120 more answers kept in historique\.jsonl/);
+  // Et le compteur du jour compte toujours le journal entier, pas la liste bornée : borner la page ne
+  // change aucun nombre qu'elle affiche.
+  assert.match(page, /class="tile ok"[^>]*><b data-n="120"/);
+});
+
+test("journal: a counter opens on what it counts, and a target is a link only where its address was seen", () => {
+  // Asked on 2026-11-14: the four numbers should lead to the things they count, and each claimed thing to
+  // what it is about. The number was already true, it simply could not be opened.
+  const jour = (rows) => [{ at: "2026-11-14T12:00:00Z", verdict: rows[0].verdict, rows }];
+  const page = journalHtml(
+    jour([
+      { verdict: "PROVEN", kind: "PR_MERGED", target: "#5263", why: "PULL_REQUEST_MERGED", url: "https://github.com/acme/x/pull/5263" },
+      { verdict: "CONTRADICTED", kind: "FILE_WRITTEN", target: "core/a.mjs", why: "FILE_ABSENT" },
+    ]),
+    new Date("2026-11-14T15:00:00Z"),
+  );
+  // Le compteur est un bouton : la souris, le clavier et un lecteur d'écran s'en servent tous les trois.
+  for (const v of ["PROVEN", "NOT_PROVEN", "CONTRADICTED", "COULD_NOT_CHECK"])
+    assert.match(page, new RegExp('<button type="button" class="tile [^"]*" data-v="' + v + '" aria-pressed="false"'));
+  // Chaque ligne dit ce qu'elle est, sinon le filtre ne saurait pas quoi garder.
+  assert.match(page, /<li class="ok" data-v="PROVEN"/);
+  assert.match(page, /<li class="bad" data-v="CONTRADICTED"/);
+  // L'adresse vue devient un lien, qui s'ouvre à côté : dans le cadre isolé de la Control Room, GitHub
+  // refuse d'être encadré, donc un lien qui s'ouvrirait dedans ne mènerait nulle part.
+  assert.match(page, /<a class="cible" href="https:\/\/github\.com\/acme\/x\/pull\/5263" target="_blank" rel="noopener noreferrer"><code>#5263<\/code><\/a>/);
+  // Et là où aucune adresse n'a été vue, rien n'est inventé : un fichier de cette machine n'est pas
+  // ouvrable depuis un navigateur, et une demande dont on ignore le dépôt mènerait au mauvais endroit.
+  assert.match(page, /<code>core\/a\.mjs<\/code>/);
+  assert.doesNotMatch(page, /<a class="cible"[^>]*core\/a\.mjs/);
+  // Le filtre travaille dans la page et nulle part ailleurs : la page est servie dans un cadre qui a le
+  // droit d'exécuter un script et rien d'autre, et elle doit continuer d'y tenir.
+  assert.doesNotMatch(FILTRE, /fetch\(|XMLHttpRequest|new WebSocket|\.src\s*=/);
+  assert.match(FILTRE, /querySelectorAll\(["']\.tile\[data-v\]["']\)/);
+});
+
+test("journal: the four of the crew are alive, and only them", () => {
+  // Asked on 2026-11-14 and judged there: not photographs that wobble, characters that live. The drawing is
+  // laid whole on an elastic net, so nothing is cut and nothing can tear at a joint. What makes it read as a
+  // body rather than cardboard on a stick is measured, not decorative: the motion travels up with a delay
+  // (hips first, head last), a pose is HELD instead of springing back, and a glance jumps instead of gliding.
+  const page = journalHtml([{ at: "2026-11-14T12:00:00Z", verdict: "PROVEN", rows: [{ verdict: "PROVEN", kind: "FILE_WRITTEN", target: "a.md", why: "FILE_PRESENT" }] }], new Date("2026-11-14T15:00:00Z"));
+  assert.ok(page.includes(VIVANT), "the page carries the engine");
+  for (const nom of ["f-fourmi", "f-pigeon", "f-grenouille", "f-taupe"]) {
+    assert.ok(GENS[nom], nom + " must have a temperament");
+    assert.ok(page.includes(nom), nom + " must be named in the page");
+  }
+  // Only the four. A page can hold two thousand cards, and two thousand nets would melt the machine of
+  // whoever opens it; the cards keep the plain gesture added earlier the same day.
+  assert.match(VIVANT, /querySelectorAll\(["']\.who > \.face["']\)/);
+  assert.doesNotMatch(VIVANT, /\.face\.mini/);
+  // Reduced motion stops it before anything is built, and the drawings stay exactly as they were.
+  assert.match(VIVANT, /prefers-reduced-motion: reduce[^]{0,40}return/);
+  // The first frame is drawn BEFORE the picture is hidden: in a background tab the loop never runs, and
+  // hiding first would leave a hole where the character is. Found on 2026-11-14 while wiring it in.
+  assert.ok(VIVANT.indexOf("dessine(s,repos)") < VIVANT.indexOf('span.style.visibility="hidden"'), "draw, then hide");
+  // The axis of the sway is the middle of the feet, measured on each drawing: the frog stands to the right
+  // of her picture and the mole to the left, so a shared 0.5 would pivot them around thin air.
+  assert.ok(GENS["f-grenouille"].axe > 0.58, "the frog does not pivot around the middle");
+  assert.ok(GENS["f-taupe"].axe < 0.42, "nor does the mole");
+});
+
+test("journal: each animal moves in its own way when the line it holds is pointed at", () => {
+  // Asked on 2026-11-14: the animals should move rather than sit there as still patches. One gesture each,
+  // in character, played by pointing at the line it holds: a mouse hovers, a finger taps. No tab stop is
+  // added for it, because the gesture says nothing a keyboard user would otherwise miss, and a page of
+  // entries would gain one dead stop each. Drawn loops, should they come, replace the gesture without
+  // touching what triggers it.
+  const page = journalHtml([{ at: "2026-11-14T12:00:00Z", verdict: "PROVEN", rows: [{ verdict: "PROVEN", kind: "FILE_WRITTEN", target: "a.md", why: "FILE_PRESENT" }] }], new Date("2026-11-14T15:00:00Z"));
+  for (const [animal, gesture] of [
+    ["f-fourmi", "nod"],
+    ["f-pigeon", "peck"],
+    ["f-grenouille", "hop"],
+    ["f-taupe", "burrow"],
+  ]) {
+    assert.match(page, new RegExp("@keyframes " + gesture + "\\{"), gesture + " must be drawn");
+    assert.match(page, new RegExp("article:hover>\\." + animal + "[^{]*\\{animation:" + gesture), animal + " must move on the card of an entry");
+    assert.match(page, new RegExp("\\.who:hover>\\." + animal + "\\{animation:" + gesture), animal + " must move among the four");
+    assert.match(page, new RegExp("article:active>\\." + animal), animal + " must move on a tap too");
+  }
+  // A gesture turns the independent rotate/translate/scale, never `transform`, which carries the resting
+  // tilt of a card's animal: the two compose instead of one erasing the other.
+  assert.doesNotMatch(page, /@keyframes (?:nod|peck|sway|hop|burrow)\{[^}]*transform:/);
+  // Reduced motion needs no rule of its own here: the page already cuts every animation it holds.
+  assert.match(page, /@media\(prefers-reduced-motion:reduce\)\{\*,\*::before,\*::after\{animation:none!important/);
+});
+
 test("journal: the octopus on top takes the pose of the day's worst answer", () => {
   // Drawn to be read at a glance: arms crossed (not found), pointing in anger (contradicted), blindfolded (couldn't look).
   const now = new Date("2026-11-12T15:00:00Z");
@@ -697,7 +895,7 @@ test("words: every language says everything English says", () => {
   // Written the way each language speaks: none of these is the English sentence put into other words.
   // The French one is the whole sentence one really says, not its clipped form.
   assert.deepEqual(LANGS.map((l) => PAGE[l].slogan), ["Done? Show me.", "C'est fait ? Fais voir.", "¿Hecho? A ver.", "搞定了？给我看看。", "خلاص؟ ورّيني."]);
-  assert.deepEqual(LANGS.map((l) => WORDS[l].NOT_PROVEN), ["NOT FOUND", "REFUSÉ", "NO CONSTA", "查无实据", "لا أثر له"]);
+  assert.deepEqual(LANGS.map((l) => WORDS[l].NOT_PROVEN), ["NOT FOUND", "PAS TROUVÉ", "NO CONSTA", "查无实据", "لا أثر له"]);
   // Arabic counts one, two, a few and many each in their own form; and it is the only one read right to left.
   assert.deepEqual([1, 2, 5, 12].map(WORDS.ar.checked), ["تمّ التحقق من ادّعاء واحد", "تمّ التحقق من ادّعاءين", "تمّ التحقق من 5 ادّعاءات", "تمّ التحقق من 12 ادّعاءً"]);
   assert.deepEqual(LANGS.map((l) => DIR[l]), ["ltr", "ltr", "ltr", "ltr", "rtl"]);
@@ -735,18 +933,18 @@ test("journal: one character per answer, and the crew says its own sentences in 
   const entry = (verdict, kind, at) => ({ at, verdict, source: "claude", cwd: "x", rows: kind ? [row(verdict, kind)] : [] });
   // A character that matches none of the answers creates a dissonance: each one stands for an answer.
   assert.equal(castOf(entry("PROVEN", "FILE_WRITTEN")), "fourmi.webp");
-  assert.equal(castOf(entry("NOT_PROVEN", "FILE_WRITTEN")), "albatros.webp", "missing, not there yet: the one who will do it tomorrow");
-  assert.equal(castOf(entry("NOT_PROVEN", "PUSHED")), "pigeon.webp", "said to be sent, never arrived: the courier");
+  // Four answers, four characters (2026-11-15): "not found" is the pigeon's alone, whatever was missing.
+  assert.equal(castOf(entry("NOT_PROVEN", "FILE_WRITTEN")), "pigeon.webp", "nothing there: the courier who says it was delivered");
+  assert.equal(castOf(entry("NOT_PROVEN", "PUSHED")), "pigeon.webp");
   assert.equal(castOf(entry("NOT_PROVEN", "PR_MERGED")), "pigeon.webp");
   assert.equal(castOf(entry("CONTRADICTED", "TESTS_PASS")), "grenouille.webp");
   assert.equal(castOf(entry("COULD_NOT_CHECK", "PUSHED")), "taupe.webp");
   assert.equal(castOf(entry("NOTHING_CLAIMED")), "skeptopus.webp", "nothing to check: the octopus himself");
-  // A proven row beside a missing one does not make the courier appear: only what is missing counts.
-  assert.equal(castOf({ verdict: "NOT_PROVEN", rows: [row("PROVEN", "PUSHED"), row("NOT_PROVEN", "FILE_WRITTEN")] }), "albatros.webp");
+  assert.equal(castOf({ verdict: "NOT_PROVEN", rows: [row("PROVEN", "PUSHED"), row("NOT_PROVEN", "FILE_WRITTEN")] }), "pigeon.webp");
   const entries = [entry("PROVEN", "FILE_WRITTEN", "2026-11-12T12:05:00Z"), entry("NOT_PROVEN", "PUSHED", "2026-11-12T12:04:00Z"), entry("NOT_PROVEN", "FILE_WRITTEN", "2026-11-12T12:03:00Z"), entry("CONTRADICTED", "TESTS_PASS", "2026-11-12T12:02:00Z"), entry("COULD_NOT_CHECK", "PUSHED", "2026-11-12T12:01:00Z")];
   const page = journalHtml(entries, now);
   const english = page.slice(page.indexOf('data-lang="en"'), page.indexOf('data-lang="fr"'));
-  assert.deepEqual([...english.matchAll(/<article [^>]*>(?:<p class="erratum">.*?<\/p>)?<span class="face mini (f-\w+)"/g)].map((m) => m[1]), ["f-fourmi", "f-pigeon", "f-albatros", "f-grenouille", "f-taupe"]);
+  assert.deepEqual([...english.matchAll(/<article [^>]*>(?:<p class="erratum">.*?<\/p>)?<span class="face mini (f-\w+)"/g)].map((m) => m[1]), ["f-fourmi", "f-pigeon", "f-pigeon", "f-grenouille", "f-taupe"]);
   assert.match(english, /aria-label="The ant · SEEN"/);
   // The pictures come from the full-size originals and ship as WebP; the big octopus of the header is the same character.
   assert.match(page, /\.f-fourmi\{background-image:url\(data:image\/webp;base64,/);
@@ -754,14 +952,15 @@ test("journal: one character per answer, and the crew says its own sentences in 
   assert.match(english, /class="face hero-face f-skeptopus-contredit"/);
   assert.doesNotMatch(page, /data:image\/png/, "no small preview left in the page");
   // Each picture is still written once, as a style, however many cards show it.
-  for (const f of ["fourmi", "albatros", "pigeon", "grenouille", "taupe"]) assert.equal((page.match(new RegExp("\\.f-" + f + "\\{background-image", "g")) ?? []).length, 1, f);
-  // The crew: five characters in each of the five languages, each with its answer and its own spoken sentence.
-  assert.equal((page.match(/<figure class="who /g) ?? []).length, 25);
+  for (const f of ["fourmi", "pigeon", "grenouille", "taupe"]) assert.equal((page.match(new RegExp("\\.f-" + f + "\\{background-image", "g")) ?? []).length, 1, f);
+  // The crew: four characters, one per answer, in each of the five languages, each with its answer and its own spoken sentence.
+  assert.equal((page.match(/<figure class="who /g) ?? []).length, 20);
+  assert.doesNotMatch(page, /albatros/, "no character without an answer of its own");
   assert.match(english, /<figure class="who warn"><span class="face who-face f-pigeon"[^>]*><\/span><figcaption><b>The pigeon<\/b><span class="stamp">NOT FOUND<\/span><span class="line">“No, it went out this morning\. It says delivered on my end\.”<\/span>/);
   const french = page.slice(page.indexOf('data-lang="fr"'), page.indexOf('data-lang="es"'));
-  assert.match(french, /Les cinq qui disent/);
+  assert.match(french, /Les quatre qui disent/);
   assert.match(french, /<b>La taupe<\/b><span class="stamp">PAS PU VOIR<\/span><span class="line">«[^<]*Ah moi j'ai rien vu, hein\. J'avais pas les accès\.[^<]*»/);
-  for (const lang of LANGS) assert.deepEqual(Object.keys(PAGE[lang].crew), ["ant", "albatross", "pigeon", "frog", "mole"], lang);
+  for (const lang of LANGS) assert.deepEqual(Object.keys(PAGE[lang].crew), ["ant", "pigeon", "frog", "mole"], lang);
 });
 
 test("journal: one page, every language, the reader's own shown first", () => {
@@ -803,7 +1002,7 @@ test("journal: one page, every language, the reader's own shown first", () => {
   assert.match(arabic, /<html lang="ar-u-ca-gregory-nu-latn" dir="rtl">/);
   // Each part speaks its own language, down to the date and the punctuation.
   assert.match(page, /November 12[\s\S]*NOT FOUND<\/span>[\s\S]*the file doesn't exist/);
-  assert.match(page, /REFUSÉ<\/span>[\s\S]*le fichier n'existe pas/);
+  assert.match(page, /PAS TROUVÉ<\/span>[\s\S]*le fichier n'existe pas/);
   assert.match(page, /<p class="slogan"><span class="nb">C'est fait\u202f\?<\/span> <span class="nb">Fais voir\.<\/span><\/p>/, "French thin spaces");
   assert.match(page, /12 de noviembre[\s\S]*NO CONSTA<\/span>[\s\S]*el archivo no existe/);
   assert.match(page, /11月12日[\s\S]*查无实据<\/span>[\s\S]*文件不存在/);
@@ -826,7 +1025,7 @@ test("journal: one page, every language, the reader's own shown first", () => {
 test("journal: an answer found wrong is kept, struck, explained, and no longer counted", () => {
   const now = new Date("2026-11-12T15:00:00Z");
   const entry = (at, extra) => ({ at, verdict: "CONTRADICTED", source: "claude", cwd: "x", rows: [{ verdict: "CONTRADICTED", kind: "TESTS_PASS", target: "3/3", why: "TESTS_FAIL_NOW", said: "3 tests sur 3." }], ...extra });
-  const tileOf = (html) => /class="tile bad"><b data-n="(\d+)"/.exec(html)[1];
+  const tileOf = (html) => /class="tile bad"[^>]*><b data-n="(\d+)"/.exec(html)[1];
   assert.equal(tileOf(journalHtml([entry("2026-11-12T12:00:00Z")], now)), "1");
   const corrected = journalHtml([entry("2026-11-12T12:00:00Z", { erratum: "Fausse alerte." })], now);
   assert.equal(tileOf(corrected), "0");
@@ -973,7 +1172,7 @@ test("hook: tells the human, never blocks, never breaks the session", () => {
   const said = hook(JSON.stringify({ hook_event_name: "Stop", cwd: dir, last_assistant_message: "Fait. J'ai créé `out/report.md`." }));
   assert.equal(said.status, 0);
   const out = JSON.parse(said.stdout);
-  assert.match(out.systemMessage, /REFUSÉ/);
+  assert.match(out.systemMessage, /PAS TROUVÉ/);
   assert.match(out.systemMessage, /out\/report\.md/);
   assert.equal(out.decision, undefined, "observe only");
   // Everything seen: one quiet line, and the session log is only skimmed for its first timestamp.
@@ -998,7 +1197,7 @@ test("hook: tells the human, never blocks, never breaks the session", () => {
   assert.equal(lines.length, 1);
   assert.deepEqual(lines[0].rows.map((r) => r.verdict + ":" + r.target), ["PROVEN:out/report.md", "NOT_PROVEN:out/absent.md"]);
   const page = readFileSync(join(home, "journal.html"), "utf8");
-  assert.match(page, /REFUSÉ/);
+  assert.match(page, /PAS TROUVÉ/);
   assert.match(page, /out\/absent\.md/);
   assert.ok(!page.includes("—"), "no em dash in anything a reader sees");
   // One page, every language; the one shown first is the user's.
@@ -1022,7 +1221,7 @@ test("hook: tells the human, never blocks, never breaks the session", () => {
     timeout: 20000,
   });
   assert.equal(other.status, 0);
-  assert.match(other.stdout, /^SkeptOpus · \[ REFUSÉ \]/);
+  assert.match(other.stdout, /^SkeptOpus · \[ PAS TROUVÉ \]/);
   const last = readFileSync(join(home, "historique.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l)).at(-1);
   assert.equal(last.source, "codex");
   const silent = spawnSync(process.execPath, [cli, "hook", "--out", "none", JSON.stringify({ text: "I created `out/absent.md`.", cwd: dir })], { encoding: "utf8", env: { ...process.env, SKEPTOPUS_HOME: home }, timeout: 20000 });
@@ -1154,7 +1353,7 @@ test("glance: the state of the day in one line, for a host that has one line", (
   assert.equal(day.texts.zh.short, "不属实：1");
   assert.equal(day.texts.ar.short, "خلاف الواقع: 1");
   assert.equal(day.texts.es.word, "DESMENTIDO");
-  assert.equal(day.texts.fr.mood, "Aujourd'hui : 1 contredit et 2 refusés. À regarder.");
+  assert.equal(day.texts.fr.mood, "Aujourd'hui : 1 contredit et 2 pas trouvés. À regarder.");
   // The contradiction turns out to be SkeptOpus's own mistake: the worst answer of the day is the next one down.
   writeFileSync(join(home, "errata.json"), JSON.stringify({ "2026-11-12T12:00:00Z": "wrong alarm" }));
   const after = glance(home, now);
@@ -1169,7 +1368,7 @@ test("glance: the state of the day in one line, for a host that has one line", (
   assert.equal(moodIn(some(["PROVEN", "PROVEN", "PROVEN"]), "en"), "Today: 3 things seen, nothing to report.");
   assert.equal(moodIn([], "en"), "Nothing to check so far today.");
   assert.equal(moodIn(some(["CONTRADICTED"]), "fr"), "Aujourd'hui : 1 contredit. À regarder.");
-  for (const lang of LANGS) assert.equal(moodIn(some(["NOT_PROVEN"]), lang), lang === "fr" ? glance(home, now).texts.fr.mood.replace(/\d+ refusés/, "1 refusé") : PAGE[lang].moodAlert(0, 1), lang);
+  for (const lang of LANGS) assert.equal(moodIn(some(["NOT_PROVEN"]), lang), lang === "fr" ? glance(home, now).texts.fr.mood.replace(/\d+ pas trouvés/, "1 pas trouvé") : PAGE[lang].moodAlert(0, 1), lang);
   // The command: a sentence for a human, the whole thing for a host. It reads the clock, so it gets its own folder
   // and today's real date: on entries dated 12/11 this part failed after midnight (found on 13/11).
   const cli = resolve("core", "cli.mjs");
@@ -1181,10 +1380,10 @@ test("glance: the state of the day in one line, for a host that has one line", (
   writeFileSync(said, "I created `nowhere/at-all.md`.");
   const clip = spawnSync(process.execPath, [cli, "clip", "--text-file", said, "--cwd", live], { encoding: "utf8", env });
   assert.equal(clip.status, 0);
-  assert.match(clip.stdout, /REFUSÉ/);
+  assert.match(clip.stdout, /PAS TROUVÉ/);
   const last = readFileSync(join(live, "historique.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l)).at(-1);
   assert.deepEqual([last.source, last.verdict, last.rows[0].target], ["clipboard", "NOT_PROVEN", "nowhere/at-all.md"]);
-  assert.equal(spawnSync(process.execPath, [cli, "glance"], { encoding: "utf8", env }).stdout, "Aujourd'hui : 1 refusé. À regarder.\n");
+  assert.equal(spawnSync(process.execPath, [cli, "glance"], { encoding: "utf8", env }).stdout, "Aujourd'hui : 1 pas trouvé. À regarder.\n");
   assert.equal(JSON.parse(spawnSync(process.execPath, [cli, "glance", "--json"], { encoding: "utf8", env }).stdout).home, live);
 });
 
@@ -1622,8 +1821,107 @@ test("ci: a table for a run's summary, JUnit for dashboards, and --fail-on decid
   // Kept in release/public here; at the root of the public repository.
   const action = readFileSync([resolve("release", "public", "action.yml"), resolve("action.yml")].find((f) => existsSync(f)), "utf8");
   assert.ok(!/\$\{\{\s*github\.event\.pull_request\.(body|title)/.test(action));
-  assert.match(action, /--fail-on "\$FAIL_ON"/);
-  assert.match(action, /GITHUB_STEP_SUMMARY/);
+  assert.match(action, /node "\$GITHUB_ACTION_PATH\/core\/action\.mjs"/);
+  // Every action it uses is pinned to a commit, and the checkout leaves no token behind for the code it checks.
+  for (const used of action.matchAll(/uses:\s*(\S+)/g)) assert.match(used[1], /@[0-9a-f]{40}$/, used[1]);
+  assert.match(action, /persist-credentials: false/);
+});
+
+test("action: who wrote a pull request is read from what it left, and the receipt says where it was seen", async () => {
+  const { agentsOn } = await import("../core/action.mjs");
+  const names = (pr) => agentsOn(pr).map((a) => a.name + ":" + a.seen.map((s) => s.where).join("+"));
+  assert.deepEqual(names({ author: "Copilot", commits: [{ message: "Add x", author: "copilot-swe-agent[bot]", login: "Copilot" }] }), ["GitHub Copilot:opened+author"]);
+  assert.deepEqual(names({ author: "someone", branch: "claude/fix", commits: [{ message: "Fix\n\nCo-Authored-By: Claude Opus <noreply@anthropic.com>" }] }), ["Claude Code:trailer+branch"]);
+  assert.deepEqual(names({ author: "someone", body: "https://chatgpt.com/codex/tasks/task_e_123" }), ["OpenAI Codex:description"]);
+  assert.deepEqual(names({ author: "someone", pusher: "cursor[bot]", commits: [{ message: "x", author: "Cursor Agent", email: "cursoragent@cursor.com" }] }), ["Cursor:pushed+author"]);
+  assert.equal(agentsOn({ body: "🤖 Generated with [Claude Code](https://claude.com/claude-code)" })[0].seen[0].what, "Generated with Claude Code");
+  // The token goes to GitHub's tool when it reads, never to the test command nor to a call that writes.
+  const { readingWith } = await import("../core/action.mjs");
+  const lent = [];
+  const runner = readingWith("tok", async (cmd, args, options) => lent.push(cmd + " " + args.join(" ") + " " + (options.env?.GH_TOKEN ?? "-")));
+  for (const [cmd, ...args] of [["gh", "pr", "view", "1"], ["gh", "api", "repos/o/r/issues/comments/1"], ["gh", "api", "-X", "DELETE", "repos/o/r"], ["gh", "api", "repos/o/r/issues", "-f", "title=x"], ["gh", "auth", "token"], ["npm", "test"]]) await runner(cmd, args, {});
+  assert.deepEqual(lent.map((l) => l.split(" ").pop()), ["tok", "tok", "-", "-", "-", "-"]);
+  // A person's own pull request: nothing seen, nothing claimed about who wrote it.
+  assert.deepEqual(names({ author: "someone", branch: "feature/x", body: "I used Claude to think it through.", commits: [{ message: "Add x", author: "Someone" }] }), []);
+});
+
+test("action: one receipt per pull request, updated on each push, the earlier answers kept, the token never handed to the code", async () => {
+  const { createServer } = await import("node:http");
+  const { main, MARKER, historyFrom } = await import("../core/action.mjs");
+  const dir = scratch("skeptopus-action-");
+  execFileSync("git", ["init", "-q", dir]);
+  writeFileSync(join(dir, "hello.js"), "console.log('hello')\n");
+  // What the server was asked, and the comments it keeps, as GitHub would.
+  const asked = [];
+  const comments = [];
+  const commits = [{ sha: "a".repeat(40), commit: { message: "Add hello.js\n\nCo-Authored-By: Claude <noreply@anthropic.com>", author: { name: "A person", email: "a@example.com" } }, author: { login: "a-person" } }];
+  const server = createServer((req, res) => {
+    let raw = "";
+    req.on("data", (c) => (raw += c));
+    req.on("end", () => {
+      asked.push(req.method + " " + req.url + " " + (req.headers.authorization ?? ""));
+      const send = (status, json) => (res.writeHead(status, { "content-type": "application/json" }), res.end(JSON.stringify(json)));
+      if (req.url.startsWith("/repos/o/r/pulls/7/commits")) return send(200, commits);
+      if (req.method === "GET" && req.url.startsWith("/repos/o/r/issues/7/comments")) return send(200, comments);
+      if (req.method === "POST" && req.url === "/repos/o/r/issues/7/comments") {
+        comments.push({ id: 1, body: JSON.parse(raw).body, html_url: "https://example.test/c/1" });
+        return send(201, comments[0]);
+      }
+      if (req.method === "PATCH" && req.url === "/repos/o/r/issues/comments/1") {
+        comments[0].body = JSON.parse(raw).body;
+        return send(200, comments[0]);
+      }
+      send(404, {});
+    });
+  });
+  await new Promise((done) => server.listen(0, "127.0.0.1", done));
+  const event = join(dir, "event.json");
+  const pull = (head, body) => writeFileSync(event, JSON.stringify({ pull_request: { number: 7, title: "Add hello", body, head: { sha: head, ref: "claude/hello" }, user: { login: "a-person" } }, sender: { login: "a-person" } }));
+  const env = () => ({ SKEPTOPUS_TOKEN: "secret-token", GITHUB_EVENT_PATH: event, GITHUB_REPOSITORY: "o/r", GITHUB_WORKSPACE: dir, GITHUB_API_URL: "http://127.0.0.1:" + server.address().port, GITHUB_RUN_ID: "42", RUNNER_TEMP: dir, GITHUB_STEP_SUMMARY: join(dir, "summary.md"), GITHUB_OUTPUT: join(dir, "out.txt"), INPUT_LANG: "fr" });
+  for (const k of ["INPUT_WHO", "INPUT_FAIL_ON", "INPUT_SETTINGS"]) delete process.env[k];
+  try {
+    pull("b".repeat(40), "I created `hello.js` and `missing.js`.");
+    const first = env();
+    assert.equal(await main(first), 0, "not found is not a contradiction");
+    assert.equal(first.SKEPTOPUS_TOKEN, undefined, "the token is out of the environment before anything is checked");
+    assert.equal(comments.length, 1);
+    const body = comments[0].body;
+    assert.ok(body.startsWith(MARKER));
+    assert.match(body, /^### Reçu SkeptOpus · 🟠 PAS TROUVÉ$/m);
+    assert.match(body, /Écrite par \*\*Claude Code\*\* \(vu à `Co-Authored-By: Claude` dans 1 commit sur 1 ; branche `claude\/hello`\)/);
+    assert.match(body, /✅ \*\*VU\*\* 1 · 🟠 \*\*PAS TROUVÉ\*\* 1 · 🔴 \*\*CONTREDIT\*\* 0 · ⚪ \*\*PAS PU VOIR\*\* 0/);
+    assert.match(body, /\| ✅ VU \| fichier écrit `hello\.js` \|/);
+    assert.match(body, /\| 🟠 PAS TROUVÉ \| fichier écrit `missing\.js` \|/);
+    assert.match(body, /rien n'a été envoyé ailleurs/);
+    assert.ok(asked.every((a) => a.endsWith("Bearer secret-token")), "only this repository's API, with the run's token");
+    // A second push: the same comment, updated, with the first answer kept in one line.
+    pull("c".repeat(40), "I created `hello.js`.");
+    assert.equal(await main(env()), 0);
+    assert.equal(comments.length, 1, "updated in place, not a second comment");
+    assert.match(comments[0].body, /^### Reçu SkeptOpus · ✅ VU$/m);
+    assert.match(comments[0].body, /Plus tôt sur cette demande : `bbbbbbb` 🟠 PAS TROUVÉ/);
+    assert.deepEqual(historyFrom(comments[0].body, "d").map((r) => r.verdict), ["NOT_PROVEN", "PROVEN"]);
+    assert.ok(!/<!-- skeptopus:data [^>]*--[^>]/.test(comments[0].body.replace(/-->$/, "")), "the record never closes its own comment");
+    // A person's own pull request is left alone, and the run says what it looked at.
+    commits[0].commit.message = "Add hello.js";
+    writeFileSync(event, JSON.stringify({ pull_request: { number: 7, title: "Add hello", body: "I created `missing.js`.", head: { sha: "e".repeat(40), ref: "feature/hello" }, user: { login: "a-person" } }, sender: { login: "a-person" } }));
+    assert.equal(await main(env()), 0);
+    assert.match(readFileSync(join(dir, "summary.md"), "utf8"), /Aucun agent IA vu sur cette demande de fusion, donc rien n'a été vérifié/);
+    assert.match(readFileSync(join(dir, "out.txt"), "utf8"), /verdict=NOT_CHECKED/);
+    // A token that can only read (a pull request from a fork): the receipt stays in the summary, and says why.
+    commits[0].commit.message = "Add hello.js\n\nCo-Authored-By: Claude <noreply@anthropic.com>";
+    comments.length = 0;
+    const readOnly = createServer((req, res) => (req.url.includes("/commits") ? (res.writeHead(200), res.end(JSON.stringify(commits))) : req.method === "GET" ? (res.writeHead(200), res.end("[]")) : (res.writeHead(403), res.end("{}"))));
+    await new Promise((done) => readOnly.listen(0, "127.0.0.1", done));
+    try {
+      assert.equal(await main({ ...env(), GITHUB_API_URL: "http://127.0.0.1:" + readOnly.address().port }), 0);
+      assert.match(readFileSync(join(dir, "summary.md"), "utf8"), /Le reçu n'a pas pu être posé sur la demande de fusion \(le jeton de ce run ne peut que lire/);
+    } finally {
+      readOnly.close();
+    }
+  } finally {
+    server.close();
+  }
 });
 
 test("what the README's real run showed (2026-11-13): an opening 'Done.', the longest label, and Node's own heading", async () => {
@@ -1731,7 +2029,9 @@ test("look: each named push is read on GitHub's public side, without any login, 
     ["PROVEN:REMOTE_HAS_THIS_COMMIT", "PROVEN:REMOTE_HAS_THIS_COMMIT", "PROVEN:REMOTE_HAS_THIS_COMMIT", "COULD_NOT_CHECK:REPOSITORY_NOT_PUBLIC"],
   );
   assert.equal(report.verdict, "COULD_NOT_CHECK");
-  assert.deepEqual(report.rows[0].facts, { repo: "acme/receipts", branch: "main", sha: "5f3c2a91b", remoteSha: "5f3c2a91b7d04e6a8c1f9b3d2e7a4c6058d1b9e3" });
+  // L'adresse du commit fait partie des faits depuis le 14/11 : elle vient du dépôt que la phrase nomme,
+  // jamais d'un dossier de la machine, pour que le lien de la page mène vraiment où il le dit.
+  assert.deepEqual(report.rows[0].facts, { repo: "acme/receipts", branch: "main", sha: "5f3c2a91b", url: "https://github.com/acme/receipts/commit/5f3c2a91b", remoteSha: "5f3c2a91b7d04e6a8c1f9b3d2e7a4c6058d1b9e3" });
   // Each repository is asked once, on its public address, with every way to log in turned off; no local folder is asked.
   assert.deepEqual(calls.map((c) => c.args.find((a) => a.startsWith("https://"))), ["https://github.com/acme/receipts", "https://github.com/acme/site", "https://github.com/acme/matchmaker"]);
   for (const { args, env } of calls) {

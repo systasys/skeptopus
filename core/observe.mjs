@@ -32,6 +32,12 @@ export const run = (cmd, args, options = {}) =>
   );
 
 const result = (outcome, why, facts = {}) => ({ outcome, why, facts });
+// The address of a thing seen on GitHub. A link is a fact like any other: it is kept only when what was
+// seen really names it there. Nothing is built from a folder on this machine, nor from a repository nobody
+// named: a link that leads to the wrong place is worse than no link, since it is believed.
+const DEPOT = /^[A-Za-z0-9][\w.-]*\/[\w.-]+$/;
+const chezGithub = (repo, suite) => (DEPOT.test(String(repo ?? "")) ? "https://github.com/" + repo + suite : null);
+const lien = (url) => (url ? { url } : {});
 async function repos(ctx) {
   const out = [];
   for (const root of ctx.roots) {
@@ -41,20 +47,36 @@ async function repos(ctx) {
   return out;
 }
 
+/** The same folder, or one inside it, whatever the spelling (and whatever the case, on Windows). */
+const sameFolder = (a, b) => {
+  const fold = (x) => (process.platform === "win32" ? resolve(x).toLowerCase() : resolve(x));
+  return fold(a) === fold(b) || fold(a).startsWith(fold(b).replace(/[\\/]+$/, "") + sep);
+};
 async function fileWritten(claim, ctx) {
-  const candidates = isAbsolute(claim.path) ? [claim.path] : ctx.roots.map((root) => join(root, claim.path));
-  const found = candidates.find((p) => existsSync(p));
-  if (!found) return result("NOT_SEEN", "FILE_ABSENT", { looked: candidates.length });
+  const absolute = isAbsolute(claim.path);
+  const candidates = absolute ? [claim.path] : ctx.roots.map((root) => join(root, claim.path));
+  const at = candidates.findIndex((p) => existsSync(p));
+  if (at < 0) return result("NOT_SEEN", "FILE_ABSENT", { looked: candidates.length });
+  const found = candidates[at];
+  // Where it was found, when that is a folder the user declared rather than the one the agent worked in. A
+  // relative path is looked for in every declared folder, so a file of another project can answer for this
+  // one, and the reading said only "the file is there". Measured on 2026-11-14 on a real setting: from a
+  // folder with no link to the project, "I wrote core/observe.mjs" came back SEEN. A reading that does not
+  // say where it looked is how a setting of that shape stays invisible for weeks. It says it now.
+  // A folder named for the run itself (--also) is not that: only what the settings declare is.
+  const declared = (ctx.config?.roots ?? []).filter((r) => typeof r === "string");
+  const elsewhere = !absolute && !sameFolder(found, ctx.roots[0]) && declared.some((r) => sameFolder(found, r)) ? ctx.roots[at] : null;
+  const where = elsewhere ? { elsewhere } : {};
   let info;
   try {
     info = statSync(found);
   } catch {
-    return result("COULD_NOT_LOOK", "FILE_UNREADABLE", { path: found });
+    return result("COULD_NOT_LOOK", "FILE_UNREADABLE", { path: found, ...where });
   }
-  if (info.isDirectory() && claim.kind === "FILE_REFERENCED") return result("SEEN", "FOLDER_PRESENT", { path: found });
-  if (!info.isFile()) return result("NOT_SEEN", "NOT_A_FILE", { path: found });
-  if (info.size === 0) return result("AGAINST", "FILE_EMPTY", { path: found });
-  const facts = { path: found, bytes: info.size, modifiedAt: info.mtime.toISOString() };
+  if (info.isDirectory() && claim.kind === "FILE_REFERENCED") return result("SEEN", "FOLDER_PRESENT", { path: found, ...where });
+  if (!info.isFile()) return result("NOT_SEEN", "NOT_A_FILE", { path: found, ...where });
+  if (info.size === 0) return result("AGAINST", "FILE_EMPTY", { path: found, ...where });
+  const facts = { path: found, bytes: info.size, modifiedAt: info.mtime.toISOString(), ...where };
   // Pointing at a file claims that it exists, not that it is new.
   if (claim.kind === "FILE_REFERENCED") return result("SEEN", "FILE_PRESENT", facts);
   // A file older than the session was not written by it: that is the recycler's trick.
@@ -83,7 +105,7 @@ async function committed(claim, ctx) {
       if (got.ok) {
         try {
           const info = JSON.parse(got.stdout);
-          return result("SEEN", "COMMIT_EXISTS_ON_GITHUB", { repo, sha: info.sha, committedAt: info.at ?? null });
+          return result("SEEN", "COMMIT_EXISTS_ON_GITHUB", { repo, sha: info.sha, committedAt: info.at ?? null, ...lien(chezGithub(repo, "/commit/" + info.sha)) });
         } catch {
           blind = true;
         }
@@ -291,7 +313,8 @@ async function pushedToGitHub(claim, ctx) {
   if (tips.error === "NOT_PUBLIC" && copy) return pushedFrom(here, ctx, copy);
   if (tips.error) return result("COULD_NOT_LOOK", tips.error === "NOT_PUBLIC" ? "REPOSITORY_NOT_PUBLIC" : "GITHUB_UNREACHABLE", { repo: claim.repo, ...(tips.check ? { check: tips.check } : {}) });
   const sha = claim.sha.toLowerCase();
-  const facts = { repo: claim.repo, ...(claim.branch ? { branch: claim.branch } : {}), sha };
+  const facts = { repo: claim.repo, ...(claim.branch ? { branch: claim.branch } : {}), sha,
+    ...lien(chezGithub(claim.repo, "/commit/" + sha)) };
   if (claim.branch) {
     const tip = tips.heads.get(claim.branch);
     if (!tip) return result("NOT_SEEN", "BRANCH_ABSENT_ON_REMOTE", facts);
@@ -358,6 +381,8 @@ async function pullRequest(claim, ctx) {
     if (known.length === 1) view = known[0];
   }
   if (!view.ok) {
+    // Not logged in is not "unreachable": GitHub answered nothing because nobody asked it with a login.
+    if (/gh auth login|GH_TOKEN/i.test(view.stderr)) return result("COULD_NOT_LOOK", "GITHUB_CLI_NOT_LOGGED_IN", { pr: claim.pr });
     return /could not resolve|not found|no pull requests? found/i.test(view.stderr)
       ? result("NOT_SEEN", "PULL_REQUEST_UNKNOWN", { pr: claim.pr })
       : result("COULD_NOT_LOOK", "GITHUB_UNREACHABLE", { pr: claim.pr });
@@ -368,7 +393,7 @@ async function pullRequest(claim, ctx) {
   } catch {
     return result("COULD_NOT_LOOK", "GITHUB_ANSWER_UNREADABLE");
   }
-  const facts = { pr: claim.pr, state: pr.state, mergedAt: pr.mergedAt ?? null };
+  const facts = { pr: claim.pr, state: pr.state, mergedAt: pr.mergedAt ?? null, ...lien(pr.url) };
   if (claim.kind === "PR_OPENED") return result("SEEN", "PULL_REQUEST_EXISTS", facts);
   if (pr.state === "MERGED") return result("SEEN", "PULL_REQUEST_MERGED", facts);
   return result("AGAINST", pr.state === "CLOSED" ? "PULL_REQUEST_CLOSED_UNMERGED" : "PULL_REQUEST_STILL_OPEN", facts);
