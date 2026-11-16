@@ -16,7 +16,7 @@
 <p align="center">
   <a href="LICENSE"><img alt="Code under MIT" src="https://img.shields.io/badge/code-MIT-171717?style=flat-square"></a>
   <img alt="Node.js 18 or later" src="https://img.shields.io/badge/node-%E2%89%A518-0E3B43?style=flat-square">
-  <img alt="Works with Claude Code, Codex, Cursor, Gemini CLI and any MCP client" src="https://img.shields.io/badge/works%20with-Claude%20Code%20%C2%B7%20Codex%20%C2%B7%20Cursor%20%C2%B7%20Gemini%20%C2%B7%20MCP-E44940?style=flat-square">
+  <img alt="Works with Claude Code, Codex, Cursor and any MCP client" src="https://img.shields.io/badge/works%20with-Claude%20Code%20%C2%B7%20Codex%20%C2%B7%20Cursor%20%C2%B7%20MCP-E44940?style=flat-square">
   <img alt="No account, no server, no telemetry" src="https://img.shields.io/badge/telemetry-none-137A4B?style=flat-square">
 </p>
 
