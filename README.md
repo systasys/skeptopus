@@ -78,7 +78,7 @@ One command copies the engine to `~/.skeptopus/app`, hooks every tool it finds, 
 | Claude Code | A line at the end of the turn. | MCP server, user-wide. |
 | Codex | A warning in Codex. Approve the new hook once in `/hooks`. | MCP server in `~/.codex/config.toml`. |
 | Cursor | The journal, a notification and a sound (Cursor shows nothing from hooks). | MCP server in `~/.cursor/mcp.json`. |
-| Gemini CLI | A message at the end of the turn. Not tried yet. | MCP server in `~/.gemini/settings.json`. |
+| Gemini CLI | AfterAgent hook verified with Gemini CLI 0.68.0 on Windows, using a local mock model API. Google-hosted model validation pending. | MCP server in `~/.gemini/settings.json`. |
 | Any AI, even in a browser | Copy its answer, run `node ~/.skeptopus/app/cli.mjs clip`. | |
 
 Every settings file it touches is kept as it was, beside it, as `<file>.avant-skeptopus`. Installing twice never adds a second line. `--skip mcp` leaves the servers out.
