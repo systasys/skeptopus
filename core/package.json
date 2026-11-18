@@ -1,7 +1,7 @@
 {
   "name": "skeptopus",
   "version": "0.2.5",
-  "description": "Your AI says it's done. SkeptOpus goes and looks.",
+  "description": "DONE? SHOW ME. SkeptOpus checks specific AI coding claims against observable evidence.",
   "type": "module",
   "bin": { "skeptopus": "cli.mjs" },
   "files": ["cli.mjs", "claims.mjs", "observe.mjs", "words.mjs", "mcp.mjs", "filtre.mjs", "vivant.mjs", "art/", "fonts/", "sounds/"],
