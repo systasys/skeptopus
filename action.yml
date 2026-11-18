@@ -1,5 +1,5 @@
 name: SkeptOpus
-description: "Your AI says it's done. SkeptOpus goes and looks, and leaves a receipt on every pull request an AI agent writes."
+description: "SkeptOpus checks specific AI coding claims and leaves an evidence receipt on pull requests."
 author: SYSTASYS
 branding:
   icon: eye
