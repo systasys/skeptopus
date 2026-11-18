@@ -155,7 +155,7 @@ test("extension: the package carries the engine, opens like any zip, and comes o
   // The stores link back to the code and show the banner's colour.
   assert.match(description, /<Property Id="Microsoft\.VisualStudio\.Services\.Links\.Source" Value="https:\/\/github\.com\/systasys\/skeptopus"\/>/);
   assert.match(description, /<Property Id="Microsoft\.VisualStudio\.Services\.Branding\.Color" Value="#121110"\/>/);
-  assert.match(description, /<Description xml:space="preserve">Your AI says it's done\. SkeptOpus goes and looks\.<\/Description>/);
+  assert.match(description, /<Description xml:space="preserve">DONE\? SHOW ME\. SkeptOpus checks specific AI coding claims against observable evidence\.<\/Description>/);
   assert.match(description, /<Asset Type="Microsoft\.VisualStudio\.Code\.Manifest" Path="extension\/package\.json"/);
   // Every kind of file inside is declared (the list of kinds itself is not a part of the package).
   const types = files["[Content_Types].xml"].toString("utf8");
