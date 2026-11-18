@@ -232,7 +232,7 @@ export const PAGE = {
     tiles: { PROVEN: "seen today", NOT_PROVEN: "not found", CONTRADICTED: "contradicted", COULD_NOT_CHECK: "couldn't look" },
     whatTitle: "What is SkeptOpus?",
     what: [
-      "When an AI tells you “it's done”, SkeptOpus goes and looks. It checks the files, the commits and what was sent, by itself. It doesn't take the AI's word for it.",
+      "When an AI says “it's done”, SkeptOpus checks what actually happened. It checks the files, the commits and what was sent, by itself. It doesn't take the AI's word for it.",
       "<strong>Four answers.</strong> SEEN: it looked, it's true. NOT FOUND: it looked and found nothing. CONTRADICTED: it found the opposite. COULDN'T LOOK: it had no way to look, so it concludes nothing.",
       "<strong>“Seen” means done, not done well.</strong> It checks that the thing exists, not that it's any good. It never blocks anything: it tells you.",
     ],
