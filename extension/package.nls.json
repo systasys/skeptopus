@@ -1,5 +1,5 @@
 {
-  "description": "Your AI says it's done. SkeptOpus goes and looks.",
+  "description": "DONE? SHOW ME. SkeptOpus checks specific AI coding claims against observable evidence.",
   "command.openJournal": "Open the journal in a tab",
   "command.checkClipboard": "Check what I just copied",
   "command.refresh": "Refresh",
