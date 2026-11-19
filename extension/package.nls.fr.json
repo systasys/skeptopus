@@ -1,5 +1,5 @@
 {
-  "description": "Votre IA dit que c'est fait. SkeptOpus va voir.",
+  "description": "L'IA affirme. SkeptOpus vérifie les éléments observables du travail déclaré.",
   "command.openJournal": "Ouvrir le journal dans un onglet",
   "command.checkClipboard": "Vérifier ce que je viens de copier",
   "command.refresh": "Actualiser",
