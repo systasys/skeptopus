@@ -18,6 +18,22 @@ const host = require("../extension/lib/host.js");
 const read = (...p) => readFileSync(resolve("extension", ...p), "utf8");
 const manifest = JSON.parse(read("package.json"));
 
+test("brand: retired public slogan does not reappear in active EN/FR copy", () => {
+  // Negative oracle: deliberately reintroducing any retired expression must fail.
+  const active = [
+    "README.md", "action.yml", "package.json", "server.json",
+    "core/package.json", "core/words.mjs", "core/action.mjs",
+    "extension/README.md", "extension/package.nls.json", "extension/package.nls.fr.json"
+  ];
+  for (const file of active) {
+    const source = readFileSync(resolve(file), "utf8");
+    assert.doesNotMatch(source, /go(?:es)? and look(?:s)?|went and looked|va voir|allé regarder/i,
+      file + " still carries the retired slogan or its close translation");
+  }
+  const french = JSON.parse(read("package.nls.fr.json"));
+  assert.match(french.description, /SkeptOpus vérifie/, "The current French description should be precise");
+});
+
 /** Reads a zip back the way an installer does: from its table at the end. */
 function unzip(bytes) {
   const end = bytes.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
