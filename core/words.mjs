@@ -263,7 +263,7 @@ export const PAGE = {
     tiles: { PROVEN: "vus aujourd'hui", NOT_PROVEN: "pas trouvés", CONTRADICTED: "contredits", COULD_NOT_CHECK: "pas pu voir" },
     whatTitle: "C'est quoi, SkeptOpus ?",
     what: [
-      "Quand une IA vous dit « c'est fait », SkeptOpus va voir si c'est vrai. Il regarde lui-même les fichiers, les enregistrements, les envois. Il ne croit pas l'IA sur parole.",
+      "Quand une IA vous dit « c'est fait », SkeptOpus confronte ses affirmations aux éléments observables. Il vérifie les fichiers, les commits et les envois auxquels il a accès, sans prendre l'IA au mot.",
       "<strong>Quatre réponses.</strong> VU : il a regardé, c'est vrai. PAS TROUVÉ : il a regardé, il n'a rien trouvé. CONTREDIT : il a trouvé le contraire. PAS PU VOIR : il n'a pas pu regarder, donc il ne conclut rien.",
       "<strong>« Vu » veut dire fait, pas bien fait.</strong> Il vérifie que la chose existe, pas qu'elle est bonne. Il ne bloque rien : il vous informe.",
     ],
