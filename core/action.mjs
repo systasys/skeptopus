@@ -2,7 +2,7 @@
 // SkeptOpus core / the receipt on a pull request written by an AI agent.
 //
 // Run by action.yml on `pull_request`. It reads what the pull request says it did (its title, its description,
-// its commit messages), goes and looks with the same engine as everywhere else, and leaves one comment on the
+// its commit messages), checks available evidence with the same engine as everywhere else, and leaves one comment on the
 // pull request: the four answers, with what was seen. The comment is updated in place on every push, and keeps
 // the answers of the earlier pushes in one line, so the history of a pull request stays on the pull request.
 //
