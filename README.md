@@ -1,9 +1,12 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="media/banner-animated.webp">
-    <source media="(prefers-color-scheme: light)" srcset="media/banner-light.png">
-    <img alt="SkeptOpus by SYSTASYS" src="media/banner-dark.png" width="100%">
+    <source media="(max-width: 600px)" srcset="media/readme-editorial-v5-mobile.webp">
+    <img alt="SkeptOpus editorial project cover. Claim, check and proof paths in petrol, mint and coral. Artwork only, not an actual verification or replacement for the official product logo." src="media/readme-editorial-v5-desktop.webp" width="100%">
   </picture>
+</p>
+
+<p align="center">
+  <a href="media/banner-animated.webp">Original SkeptOpus animated artwork</a>
 </p>
 
 <p align="center">
