@@ -1,12 +1,10 @@
 <p align="center">
-  <picture>
-    <source media="(max-width: 600px)" srcset="media/readme-editorial-v5-mobile.webp">
-    <img alt="SkeptOpus editorial project cover. Claim, check and proof paths in petrol, mint and coral. Artwork only, not an actual verification or replacement for the official product logo." src="media/readme-editorial-v5-desktop.webp" width="100%">
-  </picture>
-</p>
-
-<p align="center">
-  <a href="media/banner-animated.webp">Original SkeptOpus animated artwork</a>
+  <a href="media/banner-animated.webp" title="View original SkeptOpus animated artwork">
+    <picture>
+      <source media="(max-width: 600px)" srcset="media/readme-editorial-v5-mobile.webp">
+      <img alt="SkeptOpus editorial project cover. Claim, check and proof paths in petrol, mint and coral. Artwork only, not an actual verification or replacement for the official product logo. Select to view the official original animation." src="media/readme-editorial-v5-desktop.webp" width="100%">
+    </picture>
+  </a>
 </p>
 
 <p align="center">
