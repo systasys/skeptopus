@@ -2,12 +2,12 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="media/banner-animated.webp">
     <source media="(prefers-color-scheme: light)" srcset="media/banner-light.png">
-    <img alt="SkeptOpus by SYSTASYS. Your AI says it's done. SkeptOpus goes and looks." src="media/banner-dark.png" width="100%">
+    <img alt="SkeptOpus by SYSTASYS" src="media/banner-dark.png" width="100%">
   </picture>
 </p>
 
 <p align="center">
-  <b>Your AI says it's done. SkeptOpus goes and looks.</b><br>
+  <b>DONE? SHOW ME.</b><br>
   A small checker that runs on your machine and verifies what AI coding agents claim:<br>
   commits, pushes, merges, tests, files, comments, deploys.<br>
   Made for everyone who builds with AI, whether you read the code or not.
@@ -97,7 +97,7 @@ A check the AI makes on itself is kept out of your journal: an agent that verifi
 
 ## In continuous integration
 
-On every pull request an AI agent writes (Copilot, Codex, Claude Code, Cursor, Devin, Jules...), SkeptOpus reads what it says it did, goes and looks, and leaves a receipt on the pull request: the four answers, with what was seen. Save these three lines as `.github/workflows/skeptopus.yml`:
+On every pull request an AI agent writes (Copilot, Codex, Claude Code, Cursor, Devin, Jules...), SkeptOpus checks those claims against available evidence and leaves a receipt on the pull request: the four answers, with what was seen. Save these three lines as `.github/workflows/skeptopus.yml`:
 
 ```yaml
 on: pull_request

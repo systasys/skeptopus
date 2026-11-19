@@ -1,7 +1,7 @@
 {
   "name": "skeptopus-repository",
   "private": true,
-  "description": "Your AI says it's done. SkeptOpus goes and looks.",
+  "description": "DONE? SHOW ME. SkeptOpus checks specific AI coding claims against observable evidence.",
   "license": "MIT",
   "engines": { "node": ">=18" },
   "scripts": {

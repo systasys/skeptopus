@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.systasys/skeptopus",
   "title": "SkeptOpus",
-  "description": "Your AI says it's done. SkeptOpus goes and looks: commits, pushes, tests, files, deploys.",
+  "description": "SkeptOpus checks specific claims about AI coding work: commits, pushes, tests, files and deploys.",
   "version": "0.2.5",
   "websiteUrl": "https://github.com/systasys/skeptopus#readme",
   "repository": {

@@ -1,5 +1,5 @@
 name: SkeptOpus
-description: "Your AI says it's done. SkeptOpus goes and looks, and leaves a receipt on every pull request an AI agent writes."
+description: "SkeptOpus checks specific AI coding claims and leaves an evidence receipt on pull requests."
 author: SYSTASYS
 branding:
   icon: eye
@@ -53,7 +53,7 @@ runs:
         fetch-depth: 0
         persist-credentials: false
     # What the pull request says is read from GitHub by the script: it is never pasted into a command.
-    - name: Go and look, then leave the receipt
+    - name: Check evidence, then leave the receipt
       id: look
       shell: bash
       env:

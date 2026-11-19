@@ -232,7 +232,7 @@ export const PAGE = {
     tiles: { PROVEN: "seen today", NOT_PROVEN: "not found", CONTRADICTED: "contradicted", COULD_NOT_CHECK: "couldn't look" },
     whatTitle: "What is SkeptOpus?",
     what: [
-      "When an AI tells you “it's done”, SkeptOpus goes and looks. It checks the files, the commits and what was sent, by itself. It doesn't take the AI's word for it.",
+      "When an AI says “it's done”, SkeptOpus checks what actually happened. It checks the files, the commits and what was sent, by itself. It doesn't take the AI's word for it.",
       "<strong>Four answers.</strong> SEEN: it looked, it's true. NOT FOUND: it looked and found nothing. CONTRADICTED: it found the opposite. COULDN'T LOOK: it had no way to look, so it concludes nothing.",
       "<strong>“Seen” means done, not done well.</strong> It checks that the thing exists, not that it's any good. It never blocks anything: it tells you.",
     ],
@@ -263,7 +263,7 @@ export const PAGE = {
     tiles: { PROVEN: "vus aujourd'hui", NOT_PROVEN: "pas trouvés", CONTRADICTED: "contredits", COULD_NOT_CHECK: "pas pu voir" },
     whatTitle: "C'est quoi, SkeptOpus ?",
     what: [
-      "Quand une IA vous dit « c'est fait », SkeptOpus va voir si c'est vrai. Il regarde lui-même les fichiers, les enregistrements, les envois. Il ne croit pas l'IA sur parole.",
+      "Quand une IA vous dit « c'est fait », SkeptOpus confronte ses affirmations aux éléments observables. Il vérifie les fichiers, les commits et les envois auxquels il a accès, sans prendre l'IA au mot.",
       "<strong>Quatre réponses.</strong> VU : il a regardé, c'est vrai. PAS TROUVÉ : il a regardé, il n'a rien trouvé. CONTREDIT : il a trouvé le contraire. PAS PU VOIR : il n'a pas pu regarder, donc il ne conclut rien.",
       "<strong>« Vu » veut dire fait, pas bien fait.</strong> Il vérifie que la chose existe, pas qu'elle est bonne. Il ne bloque rien : il vous informe.",
     ],

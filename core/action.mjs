@@ -2,7 +2,7 @@
 // SkeptOpus core / the receipt on a pull request written by an AI agent.
 //
 // Run by action.yml on `pull_request`. It reads what the pull request says it did (its title, its description,
-// its commit messages), goes and looks with the same engine as everywhere else, and leaves one comment on the
+// its commit messages), checks available evidence with the same engine as everywhere else, and leaves one comment on the
 // pull request: the four answers, with what was seen. The comment is updated in place on every push, and keeps
 // the answers of the earlier pushes in one line, so the history of a pull request stays on the pull request.
 //
@@ -72,8 +72,8 @@ const TEXT = {
       description: (w) => "“" + w + "” in the description",
       branch: (w) => "branch `" + w + "`",
     },
-    read: (sha) => "SkeptOpus read what this pull request says it did, then went and looked, at `" + sha + "`.",
-    readAll: (sha) => "No AI agent was seen on this pull request; it was checked anyway, as this repository asks. SkeptOpus read what it says it did, then went and looked, at `" + sha + "`.",
+    read: (sha) => "SkeptOpus read what this pull request claims and checked available evidence at `" + sha + "`.",
+    readAll: (sha) => "No AI agent was seen on this pull request; it was checked anyway, as this repository asks. SkeptOpus examined the available evidence at `" + sha + "`.",
     head: ["Answer", "What it says", "What SkeptOpus saw"],
     none: "Nothing in this pull request says something was done in a way SkeptOpus can check. That is not a verdict on the work.",
     earlier: "Earlier on this pull request:",
@@ -98,8 +98,8 @@ const TEXT = {
       description: (w) => "« " + w + " » dans la description",
       branch: (w) => "branche `" + w + "`",
     },
-    read: (sha) => "SkeptOpus a lu ce que cette demande de fusion dit avoir fait, puis il est allé regarder, à `" + sha + "`.",
-    readAll: (sha) => "Aucun agent IA vu sur cette demande de fusion ; elle est vérifiée quand même, comme ce dépôt le demande. SkeptOpus a lu ce qu'elle dit avoir fait, puis il est allé regarder, à `" + sha + "`.",
+    read: (sha) => "SkeptOpus a lu les affirmations de cette demande de fusion et vérifié les éléments accessibles, à `" + sha + "`.",
+    readAll: (sha) => "Aucun agent IA vu sur cette demande de fusion ; elle est vérifiée quand même, comme ce dépôt le demande. SkeptOpus a examiné les éléments accessibles, à `" + sha + "`.",
     head: ["Réponse", "Ce qu'elle dit", "Ce que SkeptOpus a vu"],
     none: "Rien dans cette demande de fusion ne dit qu'une chose a été faite d'une façon que SkeptOpus sache vérifier. Ce n'est pas un jugement sur le travail.",
     earlier: "Plus tôt sur cette demande :",

@@ -1,6 +1,6 @@
 # SkeptOpus
 
-**Your AI says it's done. SkeptOpus goes and looks.**
+**DONE? SHOW ME.**
 
 When an AI coding tool tells you "it's done", SkeptOpus checks by itself: the files, the commits, what was pushed, the tests. It doesn't take the AI's word for it, and it tells you what it found in one of four answers.
 
