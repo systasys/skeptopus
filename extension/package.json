@@ -2,7 +2,7 @@
   "name": "skeptopus",
   "displayName": "SkeptOpus",
   "description": "%description%",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "publisher": "systasys",
   "private": true,
   "license": "MIT",

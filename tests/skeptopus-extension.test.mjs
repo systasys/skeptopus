@@ -26,9 +26,13 @@ test("brand: retired public slogan does not reappear in active EN/FR copy", () =
     "extension/README.md", "extension/package.nls.json", "extension/package.nls.fr.json"
   ];
   for (const file of active) {
-    const source = readFileSync(resolve(file), "utf8");
-    assert.doesNotMatch(source, /go(?:es)? and look(?:s)?|went and looked|va voir|allé regarder/i,
-      file + " still carries the retired slogan or its close translation");
+    // The public repository keeps these at its root; the source it is exported from keeps the public copies in
+    // release/public. Every copy that exists is read, and at least one must.
+    const copies = [resolve(file), resolve("release", "public", file)].filter((f) => existsSync(f));
+    assert.ok(copies.length > 0, file + " is nowhere");
+    for (const copy of copies)
+      assert.doesNotMatch(readFileSync(copy, "utf8"), /go(?:es)? and look(?:s)?|went and looked|va voir|allé regarder/i,
+        copy + " still carries the retired slogan or its close translation");
   }
   const french = JSON.parse(read("package.nls.fr.json"));
   assert.match(french.description, /SkeptOpus vérifie/, "The current French description should be precise");

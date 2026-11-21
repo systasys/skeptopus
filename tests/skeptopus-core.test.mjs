@@ -1901,7 +1901,10 @@ test("action: one receipt per pull request, updated on each push, the earlier an
     assert.match(comments[0].body, /^### Reçu SkeptOpus · ✅ VU$/m);
     assert.match(comments[0].body, /Plus tôt sur cette demande : `bbbbbbb` 🟠 PAS TROUVÉ/);
     assert.deepEqual(historyFrom(comments[0].body, "d").map((r) => r.verdict), ["NOT_PROVEN", "PROVEN"]);
-    assert.ok(!/<!-- skeptopus:data [^>]*--[^>]/.test(comments[0].body.replace(/-->$/, "")), "the record never closes its own comment");
+    const tail = comments[0].body.slice(comments[0].body.indexOf("<!-- skeptopus:data ") + 4).trimEnd();
+    assert.ok(tail.endsWith("-->"), "the record ends the comment");
+    const record = tail.slice(0, -3);
+    assert.ok(!record.includes("--"), "the record never closes its own comment, as --> or as --!>");
     // A person's own pull request is left alone, and the run says what it looked at.
     commits[0].commit.message = "Add hello.js";
     writeFileSync(event, JSON.stringify({ pull_request: { number: 7, title: "Add hello", body: "I created `missing.js`.", head: { sha: "e".repeat(40), ref: "feature/hello" }, user: { login: "a-person" } }, sender: { login: "a-person" } }));
@@ -2158,4 +2161,32 @@ test("look: a branch, a flag or code that holds a 'no' does not deny the push (n
   git(dir, "push", "-q", "origin", "fix-not-found");
   assert.deepEqual(await look("Pushed fix-not-found to origin.", { roots: [dir] }), ["PROVEN:REMOTE_HAS_THIS_COMMIT"]);
   assert.deepEqual(await look("Not pushed.", { roots: [dir] }), ["CONTRADICTED:IT_HAPPENED_ANYWAY:REMOTE_HAS_THIS_COMMIT"], "a real denial is still caught");
+});
+
+// Code scanning, 13/11 to 21/11: nine alerts on text an author controls (a pull request's body, a run's output).
+// Each shape below took seconds, or let a pipe or a tag through, before the fix; it must now take a blink.
+test("text built to slow the reader down, or to break a receipt, is read at once and stays in its cell", async () => {
+  const { asMarkdown } = await import("../core/cli.mjs");
+  const { passedCount, failedNames } = await import("../core/observe.mjs");
+  const fast = (label, fn) => {
+    const t0 = performance.now();
+    const out = fn();
+    assert.ok(performance.now() - t0 < 1500, label + " took " + Math.round(performance.now() - t0) + " ms");
+    return out;
+  };
+  const n = 40000;
+  fast("a run of «", () => extractClaims("«".repeat(n) + " tests pass"));
+  fast("a run of “", () => extractClaims("“".repeat(n) + " done"));
+  fast("spaces after pass", () => extractClaims("pass" + " ".repeat(n) + "x\nfail" + " ".repeat(n) + "x"));
+  fast("spaces after a runner number", () => extractClaims("# pass 3" + " ".repeat(n) + "\n# fail 0"));
+  assert.equal(fast("a run of zeros", () => passedCount("0".repeat(n))), null);
+  assert.equal(fast("zeros after a go summary", () => passedCount("ok  pkg 0.1s\n" + "0".repeat(n))), null);
+  assert.equal(passedCount("ok  \texample.com/pkg\t0.12s\n=== 12 tests\n"), 12, "the go summary is still read");
+  assert.equal(passedCount("===== 7 passed in 0.3s ====="), 7);
+  assert.match(fast("spaces in a failed line", () => failedNames({ stdout: "✖ a" + " ".repeat(n) + "x\n✖" + " ".repeat(n), stderr: "" })), /^a /);
+  assert.equal(failedNames({ stdout: "✖ failing tests:\n✖ adds two (1.5ms)\nnot ok 2 - divides (12ms)\n", stderr: "" }), "adds two ; divides");
+  const report = { verdict: "NOT_PROVEN", rows: [{ verdict: "NOT_PROVEN", claim: { kind: "FILE_WRITTEN", path: "a\\", sentence: "x" }, why: "FILE_NOT_FOUND", facts: {} }] };
+  const md = asMarkdown(report, "en");
+  assert.ok(md.includes("a\\\\"), "a backslash is doubled, so it cannot escape the pipe that closes its cell");
+  assert.ok(!md.includes("a\\|"), "no pipe is left escaped by an author's backslash");
 });

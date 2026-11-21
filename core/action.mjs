@@ -116,9 +116,18 @@ const TEXT = {
 const textOf = (lang) => TEXT[pickLang(lang)] ?? TEXT.en;
 const MARK = { PROVEN: "✅", NOT_PROVEN: "🟠", CONTRADICTED: "🔴", COULD_NOT_CHECK: "⚪", NOTHING_CLAIMED: "⚪" };
 const ORDER = ["PROVEN", "NOT_PROVEN", "CONTRADICTED", "COULD_NOT_CHECK"];
-const cell = (s) => String(s ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+// The backslash first, or a cell ending in "\" would escape the pipe that closes it.
+const cell = (s) => String(s ?? "").replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
 const code = (s) => "`" + String(s).replace(/`/g, "'") + "`";
-const plain = (html) => String(html).replace(/<\/?strong>/g, "**").replace(/<[^>]+>/g, "");
+// Tags out until none is left ("<scr<b>ipt>" leaves a tag after one pass), then no angle bracket survives.
+const plain = (html) => {
+  let s = String(html).replace(/<\/?strong>/g, "**");
+  for (let before = ""; before !== s; ) {
+    before = s;
+    s = s.replace(/<[^<>]*>/g, "");
+  }
+  return s.replace(/[<>]/g, "");
+};
 export const MARKER = "<!-- skeptopus:receipt -->";
 
 /** One line of who wrote it, and where that was seen. */

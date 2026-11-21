@@ -2,6 +2,12 @@
 
 The engine, its command line, its MCP server and the GitHub action. The editor extension carries the same engine and keeps its own list in `extension/CHANGELOG.md`.
 
+## 0.2.6
+
+- The editor extension has a new icon: SkeptOpus in close-up, his monocle on what he reads.
+- Hardened against crafted text: a message, a pull request body or a test run built to slow the reader down (long runs of one character) is now read at once, a backslash can no longer escape a cell of the receipt, and tags are stripped until none is left. This closes the nine code-scanning alerts open since 13/11.
+- The answers themselves are those of 0.2.5.
+
 ## 0.2.5
 
 A receipt on every pull request an AI agent writes, four answers with four characters, and more of what an AI says is read.

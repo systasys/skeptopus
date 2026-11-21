@@ -50,7 +50,9 @@ async function repos(ctx) {
 /** The same folder, or one inside it, whatever the spelling (and whatever the case, on Windows). */
 const sameFolder = (a, b) => {
   const fold = (x) => (process.platform === "win32" ? resolve(x).toLowerCase() : resolve(x));
-  return fold(a) === fold(b) || fold(a).startsWith(fold(b).replace(/[\\/]+$/, "") + sep);
+  let base = fold(b);
+  while (base.endsWith("/") || base.endsWith("\\")) base = base.slice(0, -1);
+  return fold(a) === fold(b) || fold(a).startsWith(base + sep);
 };
 async function fileWritten(claim, ctx) {
   const absolute = isAbsolute(claim.path);
@@ -400,10 +402,20 @@ async function pullRequest(claim, ctx) {
 }
 
 /** The names of the tests a run reports as failed, in the two shapes common runners print. */
-function failedNames(ran) {
+export function failedNames(ran) {
   const out = String(ran.stdout ?? "") + "\n" + String(ran.stderr ?? "");
   // Node's runner ends with a "✖ failing tests:" heading over the list: a heading, not a test (found on 2026-11-13).
-  const names = [...out.matchAll(/^\s*(?:✖|not ok \d+ -)\s+(.+?)(?:\s+\(\d[\d.]*m?s\))?\s*$/gm)].map((m) => m[1].trim()).filter((n) => !/^failing tests:?$/i.test(n));
+  // One line at a time, and the duration cut from the end of the trimmed line: a pattern that did both over the
+  // whole output slowed down on a line of many spaces.
+  const names = out.split(/\r?\n/)
+    .map((line) => /^\s*(?:✖|not ok \d+ -)\s(.*)$/.exec(line))
+    .filter(Boolean)
+    .map((m) => {
+      const name = m[1].trim();
+      const at = name.lastIndexOf(" (");
+      return at > 0 && /^\(\d[\d.]*m?s\)$/.test(name.slice(at + 1)) ? name.slice(0, at).trim() : name;
+    })
+    .filter((n) => n && !/^failing tests:?$/i.test(n));
   return [...new Set(names)].slice(0, 3).join(" ; ").slice(0, 200);
 }
 
@@ -424,14 +436,19 @@ const within = (inner, outer) => {
 const COUNTS = [
   /(?:^|\n)\D{0,3}pass\s+(\d+)/i, //                         node --test: "ℹ pass 133"
   /(?:^|\n)Ran\s+(\d+)\s+tests?\b/i, //                      python -m unittest: "Ran 133 tests in 1.2s"
-  /\b(\d+)\s+passed\b/i, //                                  pytest, jest, vitest: "133 passed"
+  /\b(\d{1,7})\s+passed\b/i, //                              pytest, jest, vitest: "133 passed"
   /test result:\s*ok\.\s*(\d+)\s+passed/i, //                cargo test
-  /(?:^|\n)ok\s+\S+\s+[\d.]+s\b[\s\S]*?(\d+)\s+tests?\b/i, // go test -v summaries that print a total
+  (text) => { //                                             go test -v summaries that print a total
+    // Two steps: one pattern spanning both slowed down on a long run of digits.
+    const ok = /(?:^|\n)ok\s+\S+\s+[\d.]+s\b/i.exec(text);
+    return ok ? /\b(\d{1,7})\s+tests?\b/i.exec(text.slice(ok.index + ok[0].length)) : null;
+  },
 ];
 /** The number of tests a run says passed, or null when no runner shape says it. */
 export const passedCount = (out) => {
+  const text = String(out ?? "");
   for (const shape of COUNTS) {
-    const m = shape.exec(String(out ?? ""));
+    const m = typeof shape === "function" ? shape(text) : shape.exec(text);
     if (m) return Number(m[1]);
   }
   return null;
