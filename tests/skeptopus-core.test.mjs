@@ -1901,7 +1901,9 @@ test("action: one receipt per pull request, updated on each push, the earlier an
     assert.match(comments[0].body, /^### Reçu SkeptOpus · ✅ VU$/m);
     assert.match(comments[0].body, /Plus tôt sur cette demande : `bbbbbbb` 🟠 PAS TROUVÉ/);
     assert.deepEqual(historyFrom(comments[0].body, "d").map((r) => r.verdict), ["NOT_PROVEN", "PROVEN"]);
-    const record = comments[0].body.slice(comments[0].body.indexOf("<!-- skeptopus:data ") + 4).replace(/-->\s*$/, "");
+    const tail = comments[0].body.slice(comments[0].body.indexOf("<!-- skeptopus:data ") + 4).trimEnd();
+    assert.ok(tail.endsWith("-->"), "the record ends the comment");
+    const record = tail.slice(0, -3);
     assert.ok(!record.includes("--"), "the record never closes its own comment, as --> or as --!>");
     // A person's own pull request is left alone, and the run says what it looked at.
     commits[0].commit.message = "Add hello.js";
