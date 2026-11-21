@@ -93,6 +93,21 @@ def svg(path):
 def icon(path, source, size=256):
     from PIL import Image, ImageDraw
 
+    if Image.open(source).mode not in ("RGBA", "LA", "P"):
+        # A portrait with its own background (S2, 21/11/2026: the monocle in close-up): keep the whole frame as it
+        # was approved, square it from the centre and round the corners like the rest of the list.
+        photo = Image.open(source).convert("RGB")
+        side = min(photo.size)
+        x0, y0 = (photo.width - side) // 2, (photo.height - side) // 2
+        big = size * 4
+        frame = photo.crop((x0, y0, x0 + side, y0 + side)).resize((big, big), Image.LANCZOS).convert("RGBA")
+        mask = Image.new("L", (big, big), 0)
+        ImageDraw.Draw(mask).rounded_rectangle((0, 0, big - 1, big - 1), radius=round(big * 0.22), fill=255)
+        out = Image.new("RGBA", (big, big), (0, 0, 0, 0))
+        out.paste(frame, (0, 0), mask)
+        out.resize((size, size), Image.LANCZOS).save(path, optimize=True)
+        return os.path.getsize(path)
+
     top, bottom = (233, 240, 234), (185, 214, 210)  # the page's own sea
     big = size * 4
     sea = Image.new("RGBA", (big, big))
@@ -119,4 +134,4 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         print("icon.png", icon(os.path.join(OUT, "icon.png"), sys.argv[1]), "bytes")
     else:
-        print("icon.png: left as it is (give the full-size octopus picture to redraw it)")
+        print("icon.png: left as it is (give the full-size octopus picture, or the square portrait, to redraw it)")

@@ -102,7 +102,7 @@ On every pull request an AI agent writes (Copilot, Codex, Claude Code, Cursor, D
 ```yaml
 on: pull_request
 permissions: { contents: read, pull-requests: write }
-jobs: { receipt: { runs-on: ubuntu-latest, steps: [ { uses: systasys/skeptopus@v0.2.5 } ] } }
+jobs: { receipt: { runs-on: ubuntu-latest, steps: [ { uses: systasys/skeptopus@v0.2.6 } ] } }
 ```
 
 The receipt says which agent wrote the pull request and where that was seen (the account, a commit trailer, the branch). It is one comment, updated on every push, with the earlier answers in one line. Options go under `with:`: `who: everyone` to check every pull request, `lang: fr`, `fail-on: problems` (or `contradicted`, the default, `anything`, `never`), `settings: .github/skeptopus.json` to declare your test command. Nothing leaves the run but the comment: no telemetry. A badge for your README is printed in the run's summary.
@@ -171,8 +171,8 @@ No server, no account, no telemetry. Everything it keeps stays in `~/.skeptopus`
 ## The extension for VS Code and Cursor
 
 ```sh
-node scripts/skeptopus-pack-extension.mjs        # writes dist/skeptopus-0.2.5.vsix
-code --install-extension dist/skeptopus-0.2.5.vsix
+node scripts/skeptopus-pack-extension.mjs        # writes dist/skeptopus-0.2.6.vsix
+code --install-extension dist/skeptopus-0.2.6.vsix
 ```
 
 The journal in a side panel, the worst answer of the day in the status bar, and "check what I copied". It runs the engine with the editor's own runtime. See `extension/README.md`.

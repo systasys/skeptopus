@@ -2,6 +2,11 @@
 
 The engine, its command line, its MCP server and the GitHub action. The editor extension carries the same engine and keeps its own list in `extension/CHANGELOG.md`.
 
+## 0.2.6
+
+- The editor extension has a new icon: SkeptOpus in close-up, his monocle on what he reads.
+- Nothing else changes: the engine, its command line, its MCP server and the GitHub action are those of 0.2.5.
+
 ## 0.2.5
 
 A receipt on every pull request an AI agent writes, four answers with four characters, and more of what an AI says is read.

@@ -1,6 +1,6 @@
 {
   "name": "skeptopus",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "DONE? SHOW ME. SkeptOpus checks specific AI coding claims against observable evidence.",
   "type": "module",
   "bin": { "skeptopus": "cli.mjs" },

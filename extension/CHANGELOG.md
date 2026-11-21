@@ -1,5 +1,9 @@
 # What changed
 
+## 0.2.6
+
+A new face in the list of extensions: SkeptOpus in close-up, his monocle on what he reads. Nothing else changes: the engine and its answers are those of 0.2.5.
+
 ## 0.2.5
 
 Four answers, four characters, and the engine inside reads more.

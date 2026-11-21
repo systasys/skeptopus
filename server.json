@@ -3,7 +3,7 @@
   "name": "io.github.systasys/skeptopus",
   "title": "SkeptOpus",
   "description": "SkeptOpus checks specific claims about AI coding work: commits, pushes, tests, files and deploys.",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "websiteUrl": "https://github.com/systasys/skeptopus#readme",
   "repository": {
     "url": "https://github.com/systasys/skeptopus",
@@ -14,7 +14,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "skeptopus",
-      "version": "0.2.5",
+      "version": "0.2.6",
       "transport": {
         "type": "stdio"
       },
