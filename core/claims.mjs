@@ -47,7 +47,8 @@ const LATER_I18N = new RegExp(
 );
 // "سأفعل", I will: a prefix of the verb, looked for before spelling is made plain ("سا" plain starts many words).
 const WILL_AR = /(?<![؀-ۿ])سأ[؀-ۿ]{2,}/;
-const QUOTED = /«[^»]*»|“[^”]*”|"[^"\n]{2,}"|「[^」]*」|『[^』]*』/g;
+// An opening mark never sits inside its own quote: a run of "«" is then read once, not once per mark.
+const QUOTED = /«[^«»]*»|“[^“”]*”|"[^"\n]{2,}"|「[^「」]*」|『[^『』]*』/g;
 
 const PATH_EXT =
   "md|mdx|txt|json|jsonl|ya?ml|toml|ts|tsx|js|jsx|mjs|cjs|py|rs|go|java|kt|rb|php|sh|ps1|css|scss|html|svg|png|jpe?g|gif|pdf|csv|sql|lock";
@@ -222,8 +223,8 @@ function testRatios(flat) {
 // cutter parts the word from the result, so neither half carries both and the clause-by-clause reading
 // below sees nothing. Measured on 2026-11-14: the shape an AI copies straight out of its terminal, the
 // most common one of all, reported nothing at all.
-const RUNNER_PASSED = /\b(\d{1,6})\s+(?:tests?\s+)?(?:passed|passing)\b|\bpass(?:ed)?\s*[:=]?\s*(\d{1,6})\b/;
-const RUNNER_FAILED = /\b(\d{1,6})\s+(?:tests?\s+)?(?:failed|failing)\b|\bfail(?:ed|ures?)?\s*[:=]?\s*(\d{1,6})\b/;
+const RUNNER_PASSED = /\b(\d{1,6})\s+(?:tests?\s+)?(?:passed|passing)\b|\bpass(?:ed)?\s*(?:[:=]\s*)?(\d{1,6})\b/;
+const RUNNER_FAILED = /\b(\d{1,6})\s+(?:tests?\s+)?(?:failed|failing)\b|\bfail(?:ed|ures?)?\s*(?:[:=]\s*)?(\d{1,6})\b/;
 // What pytest prints and no other sentence does: "5 passed in 0.12s".
 const RUNNER_TIMED = /\b\d{1,6}\s+passed\b[^.\n]{0,24}\bin\s+[\d.]+\s*(?:s|sec|secs|seconds|ms)\b/;
 /**
@@ -511,9 +512,13 @@ const ZERO_I18N = new RegExp(
 const VAGUE_I18N =
   /^[\s¡!¿"'«“]*(?:hecho|listo|terminado|ya esta|ya esta hecho|todo listo|todo hecho|ya funciona|funciona|搞定了?|完成了?|好了|做好了|都好了|都搞定了|已完成|全部完成|تم|خلاص|انتهيت|انتهي|جاهز|تم بنجاح|كله تمام|تمام)[\s.!¡。！✓✔]*$/;
 
+// A run of spaces longer than any sentence needs is cut to eight. Several patterns below meet a space on either side
+// of a mark; on a run of forty thousand spaces they took ten seconds (21/11), on eight they take nothing.
+const shortRuns = (text) => String(text ?? "").replace(/[ \t]{9,}/g, "        ");
+
 /** Split a message into small units: lines, table cells, then sentences. Code fences are dropped. */
 export function sentences(text) {
-  const noFences = String(text).replace(/```[\s\S]*?```/g, " ");
+  const noFences = shortRuns(text).replace(/```[\s\S]*?```/g, " ");
   const out = [];
   for (const raw of noFences.split(/\r?\n/)) {
     const line = raw.replace(/^\s*(?:[-*>]|\d+\.|#{1,6})\s+/, "").replace(/\*\*/g, "").trim();
@@ -554,6 +559,7 @@ const safeDecode = (s) => {
  *        COMMENT_POSTED, REPO_CREATED, MEASURED, VAGUE_DONE
  */
 export function extractClaims(text) {
+  text = shortRuns(text);
   const claims = [];
   const seen = new Set();
   // What makes two claims one. A push to a named repository is that repository (two repositories may hold the same

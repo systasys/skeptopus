@@ -112,7 +112,7 @@ const exitOf = { PROVEN: 0, NOTHING_CLAIMED: 0, NOT_PROVEN: 1, CONTRADICTED: 2, 
 
 // ---------- the same answer for a continuous-integration run ----------
 const xml = (s) => String(s ?? "").replace(/[<>&"']/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&apos;" })[c]).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, " ");
-const cell = (s) => String(s ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+const cell = (s) => String(s ?? "").replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
 const MARK = { PROVEN: "✅", NOT_PROVEN: "🟠", CONTRADICTED: "🔴", COULD_NOT_CHECK: "⚪", NOTHING_CLAIMED: "⚪" };
 /** A table for a run's summary page (GitHub's job summary reads Markdown). */
 export function asMarkdown(report, lang = "en") {

@@ -2,7 +2,7 @@
 
 ## 0.2.6
 
-A new face in the list of extensions: SkeptOpus in close-up, his monocle on what he reads. Nothing else changes: the engine and its answers are those of 0.2.5.
+A new face in the list of extensions: SkeptOpus in close-up, his monocle on what he reads. The engine is hardened: a message, a pull request or a test run written to slow it down is now read at once, and a backslash can no longer break a cell of its receipt. Its answers are those of 0.2.5.
 
 ## 0.2.5
 
